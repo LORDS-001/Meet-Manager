@@ -28,9 +28,10 @@ page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 await page.goto(BASE, { waitUntil: "networkidle" });
 await page.waitForTimeout(1500);
 
-// 1. State actually loaded from the API.
-const statCount = await page.locator(".stat-card").count();
-statCount === 4 ? ok("Dashboard renders 4 live stat cards") : bad("stat cards", `got ${statCount}`);
+// 1. State actually loaded from the API. Scoped to #stat-cards: the tasks view
+//    also renders .stat-card elements and they exist in the DOM while hidden.
+const statCount = await page.locator("#stat-cards .stat-card").count();
+statCount === 5 ? ok("Dashboard renders 5 live stat cards") : bad("stat cards", `got ${statCount}`);
 
 // 2. Theme choice survives a reload.
 await page.click("#btn-theme");
@@ -137,11 +138,75 @@ if (notifsBefore > 0) {
 }
 await page.keyboard.press("Escape");
 
-// 9. Sync reports back. With no OAuth client configured this must surface a
-//    friendly message rather than throwing.
+// 9. Task lifecycle, driven entirely through the UI.
+await page.click('.rail-btn[data-view="tasks"]');
+await page.waitForTimeout(900);
+
+const TITLE = `CI probe task ${Date.now()}`;
+await page.click("#btn-task-new");
+await page.waitForTimeout(500);
+await page.fill("#task-title", TITLE);
+await page.fill("#task-notes", "Created by the functional suite.");
+await page.selectOption("#task-priority", "urgent");
+// A deadline two days out, in the browser's local time.
+const due = new Date(Date.now() + 2 * 86400000);
+const pad = (n) => String(n).padStart(2, "0");
+await page.fill(
+  "#task-due",
+  `${due.getFullYear()}-${pad(due.getMonth() + 1)}-${pad(due.getDate())}T09:30`
+);
+await page.click("#task-save");
+await page.waitForTimeout(1800);
+
+const created = page.locator("#task-list .row", { hasText: TITLE });
+(await created.count()) === 1
+  ? ok("Creating a task persists and renders", TITLE)
+  : bad("task create", `found ${await created.count()} rows`);
+
+// The deadline must survive the round trip at the time that was typed.
+await created.first().click();
+await page.waitForTimeout(700);
+const deadline = await page.locator("#modal-body .fact").first().textContent();
+/09:30/.test(deadline || "")
+  ? ok("Deadline round-trips at the entered local time", deadline.replace(/\s+/g, " ").trim())
+  : bad("task deadline", deadline);
+await page.keyboard.press("Escape");
+await page.waitForTimeout(400);
+
+// Completing it moves it out of the open filter.
+await created.first().locator(".task-check").click();
+await page.waitForTimeout(1800);
+(await page.locator("#task-list .row", { hasText: TITLE }).count()) === 0
+  ? ok("Completing a task drops it from the open filter")
+  : bad("task complete", "still listed under Open");
+
+await page.selectOption("#task-filter", "done");
+await page.waitForTimeout(800);
+const doneRow = page.locator("#task-list .row", { hasText: TITLE });
+(await doneRow.count()) === 1
+  ? ok("Completed task appears under the Done filter")
+  : bad("task done filter", `found ${await doneRow.count()}`);
+
+// Clean up after ourselves.
+await doneRow.first().click();
+await page.waitForTimeout(700);
+page.once("dialog", (d) => d.accept());
+await page.click("[data-delete-task]");
+await page.waitForTimeout(1800);
+(await page.locator("#task-list .row", { hasText: TITLE }).count()) === 0
+  ? ok("Deleting a task removes it")
+  : bad("task delete", "row survived");
+await page.selectOption("#task-filter", "open");
+await page.waitForTimeout(500);
+
+// 10. Sync reports back. With no OAuth client configured this must surface a
+//     friendly message rather than throwing.
+// Let earlier toasts expire first, or we would read one of theirs.
+await page.waitForFunction(() => document.querySelectorAll(".toast").length === 0, { timeout: 8000 })
+  .catch(() => {});
 await page.click("#btn-sync");
 await page.waitForTimeout(1800);
-const toastText = await page.locator(".toast").first().textContent().catch(() => "");
+const toastText = await page.locator(".toast").last().textContent().catch(() => "");
 toastText && toastText.trim().length > 0
   ? ok("Sync reports its result in a toast", toastText.trim().slice(0, 70))
   : bad("sync toast", "no toast appeared");

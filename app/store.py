@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .models import Event
+from .tasks import Task
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS kv (
@@ -34,6 +35,18 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_utc);
 CREATE INDEX IF NOT EXISTS idx_events_source ON events(source);
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id          TEXT PRIMARY KEY,
+    source      TEXT NOT NULL DEFAULT 'local',
+    status      TEXT NOT NULL DEFAULT 'todo',
+    due_utc     TEXT,
+    updated_utc TEXT NOT NULL,
+    data        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_utc);
+CREATE INDEX IF NOT EXISTS idx_tasks_source ON tasks(source);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 
 CREATE TABLE IF NOT EXISTS notifications (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,6 +170,101 @@ class Store:
             row = self._conn.execute("SELECT COUNT(*) AS n FROM events").fetchone()
         return int(row["n"]) if row else 0
 
+    # ----------------------------------------------------------------- tasks
+    def upsert_task(self, task: Task) -> None:
+        """Insert or replace a single task, keyed on its id."""
+        row = (
+            task.id,
+            task.source,
+            task.status,
+            task.due.astimezone(timezone.utc).isoformat() if task.due else None,
+            task.updated_utc.astimezone(timezone.utc).isoformat(),
+            json.dumps(task.to_dict()),
+        )
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO tasks"
+                "(id, source, status, due_utc, updated_utc, data) VALUES (?, ?, ?, ?, ?, ?)",
+                row,
+            )
+            self._conn.commit()
+
+    def replace_tasks(self, tasks: Iterable[Task], source: str) -> int:
+        """Atomically swap out every task belonging to `source`.
+
+        Used by provider syncs: the remote list is the truth, so anything we
+        hold for that source and no longer see upstream is dropped.
+        """
+        rows = [
+            (
+                task.id,
+                source,
+                task.status,
+                task.due.astimezone(timezone.utc).isoformat() if task.due else None,
+                task.updated_utc.astimezone(timezone.utc).isoformat(),
+                json.dumps(task.to_dict()),
+            )
+            for task in tasks
+        ]
+        with self._lock:
+            self._conn.execute("DELETE FROM tasks WHERE source = ?", (source,))
+            if rows:
+                self._conn.executemany(
+                    "INSERT OR REPLACE INTO tasks"
+                    "(id, source, status, due_utc, updated_utc, data) VALUES (?, ?, ?, ?, ?, ?)",
+                    rows,
+                )
+            self._conn.commit()
+        return len(rows)
+
+    def get_task(self, task_id: str) -> Task | None:
+        with self._lock:
+            row = self._conn.execute("SELECT data FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if row is None:
+            return None
+        try:
+            return Task.from_dict(json.loads(row["data"]))
+        except (json.JSONDecodeError, KeyError, ValueError):
+            return None
+
+    def all_tasks(self) -> list[Task]:
+        with self._lock:
+            rows = self._conn.execute("SELECT data FROM tasks").fetchall()
+        tasks: list[Task] = []
+        for row in rows:
+            try:
+                tasks.append(Task.from_dict(json.loads(row["data"])))
+            except (json.JSONDecodeError, KeyError, ValueError):
+                continue
+        return tasks
+
+    def delete_task(self, task_id: str) -> bool:
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            self._conn.commit()
+            return cursor.rowcount > 0
+
+    def clear_tasks(self, source: str | None = None) -> None:
+        with self._lock:
+            if source is None:
+                self._conn.execute("DELETE FROM tasks")
+            else:
+                self._conn.execute("DELETE FROM tasks WHERE source = ?", (source,))
+            self._conn.commit()
+
+    def task_sources(self) -> list[str]:
+        with self._lock:
+            rows = self._conn.execute("SELECT DISTINCT source FROM tasks").fetchall()
+        return [row["source"] for row in rows]
+
+    def task_count(self, *, open_only: bool = False) -> int:
+        sql = "SELECT COUNT(*) AS n FROM tasks"
+        if open_only:
+            sql += " WHERE status != 'done'"
+        with self._lock:
+            row = self._conn.execute(sql).fetchone()
+        return int(row["n"]) if row else 0
+
     # --------------------------------------------------------- notifications
     def add_notification(
         self,
@@ -229,6 +337,18 @@ class Store:
         with self._lock:
             self._conn.execute("UPDATE notifications SET dismissed = 1, seen = 1")
             self._conn.commit()
+
+    def delete_notifications_for(self, event_id: str) -> int:
+        """Drop every notification tied to one event or task.
+
+        Used when a deadline moves or a task is completed: the reminder that
+        was already raised for the old state must not survive, and the unique
+        (event_id, kind) index would otherwise block a fresh one.
+        """
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM notifications WHERE event_id = ?", (str(event_id),))
+            self._conn.commit()
+            return cursor.rowcount
 
     def clear_notifications(self) -> None:
         """Delete every notification row.

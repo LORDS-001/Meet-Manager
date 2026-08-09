@@ -30,6 +30,10 @@ os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/calendar.events.readonly",
+    # Read-only: tasks are mirrored here and edited in Google Tasks.
+    # NOTE: adding this scope invalidates existing consent - anyone already
+    # connected has to reconnect once to grant it.
+    "https://www.googleapis.com/auth/tasks.readonly",
     "https://www.googleapis.com/auth/userinfo.email",
     "openid",
 ]
@@ -172,6 +176,7 @@ class GoogleCalendarClient:
         self.store.delete(PROFILE_KEY)
         self.store.delete(OAUTH_STATE_KEY)
         self.store.clear_events("google")
+        self.store.clear_tasks("google_tasks")
 
     # ----------------------------------------------------------- credentials
     def _save_credentials(self, creds) -> None:
@@ -224,6 +229,12 @@ class GoogleCalendarClient:
         if creds is None:
             raise GoogleAuthError("Google Calendar is not connected yet.")
         return build("calendar", "v3", credentials=creds, cache_discovery=False)
+
+    def _tasks_service(self):
+        creds = self._load_credentials()
+        if creds is None:
+            raise GoogleAuthError("Google is not connected yet.")
+        return build("tasks", "v1", credentials=creds, cache_discovery=False)
 
     def _refresh_profile(self, creds=None) -> dict[str, Any]:
         try:
@@ -308,6 +319,65 @@ class GoogleCalendarClient:
 
         events.sort(key=lambda e: (e.start, e.end))
         return events
+
+    # ----------------------------------------------------------------- tasks
+    def fetch_tasks(self, include_completed: bool = True) -> list[Any]:
+        """Every task across every Google Tasks list, normalised.
+
+        A single failing list is skipped rather than losing the whole sync -
+        shared or stale lists 404 fairly often.
+        """
+        from .tasks import normalise_google_task  # local import avoids a cycle
+
+        service = self._tasks_service()
+        tasks: list[Any] = []
+
+        list_page = None
+        while True:
+            try:
+                lists = service.tasklists().list(maxResults=100, pageToken=list_page).execute()
+            except HttpError as exc:
+                raise GoogleAuthError(f"Could not read your Google Tasks lists: {exc}") from exc
+
+            for tasklist in lists.get("items", []):
+                list_id = tasklist.get("id")
+                list_name = tasklist.get("title") or "Tasks"
+                if not list_id:
+                    continue
+
+                page_token = None
+                while True:
+                    try:
+                        response = (
+                            service.tasks()
+                            .list(
+                                tasklist=list_id,
+                                maxResults=100,
+                                showCompleted=include_completed,
+                                showHidden=include_completed,
+                                showDeleted=False,
+                                pageToken=page_token,
+                            )
+                            .execute()
+                        )
+                    except HttpError as exc:
+                        log.warning("Skipping task list %s: %s", list_name, exc)
+                        break
+
+                    for item in response.get("items", []):
+                        task = normalise_google_task(item, list_name)
+                        if task is not None:
+                            tasks.append(task)
+
+                    page_token = response.get("nextPageToken")
+                    if not page_token:
+                        break
+
+            list_page = lists.get("nextPageToken")
+            if not list_page:
+                break
+
+        return tasks
 
     def _normalise(self, item: dict[str, Any], calendar: dict[str, Any]) -> Event | None:
         start_block = item.get("start") or {}

@@ -76,6 +76,7 @@
     recommendations: [],
     query: "",
     filter: "upcoming",
+    taskFilter: "open",
     seenNotifIds: new Set(),
     lastError: null,
   };
@@ -83,8 +84,9 @@
   const VIEWS = [
     { id: "dashboard", label: "Overview", icon: "grid", eyebrow: "MM / OVERVIEW", title: "Meeting control" },
     { id: "meetings", label: "Register", icon: "list", eyebrow: "MM / REGISTER", title: "Every meeting" },
+    { id: "tasks", label: "Tasks", icon: "task", eyebrow: "MM / TASKS", title: "Task manager", badge: true },
     { id: "timeline", label: "Timeline", icon: "clock", eyebrow: "MM / TIMELINE", title: "Day timeline" },
-    { id: "conflicts", label: "Conflicts", icon: "alert", eyebrow: "MM / CONFLICTS", title: "Double bookings", danger: true },
+    { id: "conflicts", label: "Conflicts", icon: "alert", eyebrow: "MM / CONFLICTS", title: "Double bookings", badge: true },
     { id: "slots", label: "Slot finder", icon: "sparkle", eyebrow: "MM / SCHEDULER", title: "Find a slot" },
   ];
   const SETTINGS_META = { eyebrow: "MM / CONFIG", title: "Settings" };
@@ -103,8 +105,8 @@
       return { ok: false, offline: true, message: "Cannot reach MeetManager. Is the server still running?" };
     }
   }
-  const post = (path, payload) =>
-    api(path, { method: "POST", body: JSON.stringify(payload == null ? {} : payload) });
+  const post = (path, payload, method) =>
+    api(path, { method: method || "POST", body: JSON.stringify(payload == null ? {} : payload) });
 
   // ---------------------------------------------------------------- toasts
   function toast(message, kind) {
@@ -197,15 +199,18 @@
 
   // ------------------------------------------------------------------ nav
   function renderNav() {
+    const taskStats = (store.state && store.state.task_stats) || {};
     const counts = {
       meetings: store.state ? (store.state.upcoming || []).length : 0,
       conflicts: store.state ? (store.state.conflicts || []).length : 0,
+      // Overdue is the only task number worth interrupting someone for.
+      tasks: num(taskStats.overdue, 0),
     };
     const rail = $("#rail-nav");
     if (rail) {
       rail.innerHTML = VIEWS.map((v) => {
         const count = counts[v.id];
-        const badge = v.danger && count > 0 ? `<span class="rail-count">${count}</span>` : "";
+        const badge = v.badge && count > 0 ? `<span class="rail-count">${count}</span>` : "";
         return `<button class="rail-btn${store.view === v.id ? " is-active" : ""}" data-view="${v.id}"
                   type="button" data-tip="${esc(v.label)}" aria-label="${esc(v.label)}">${icon(v.icon)}${badge}</button>`;
       }).join("");
@@ -231,6 +236,14 @@
       case "meetings":
         sub.textContent = `Every meeting MeetManager is tracking on ${OWNER}, newest first.`;
         break;
+      case "tasks": {
+        const t = s.task_stats || {};
+        const overdue = num(t.overdue, 0);
+        if (overdue) sub.textContent = `${overdue} task${overdue === 1 ? "" : "s"} past their deadline, ${num(t.open, 0)} open in total.`;
+        else if (num(t.open, 0)) sub.textContent = `${num(t.open, 0)} open task${num(t.open, 0) === 1 ? "" : "s"}, ${num(t.due_today, 0)} due today. Nothing overdue.`;
+        else sub.textContent = "Nothing open. Add a task, or connect a platform to mirror one.";
+        break;
+      }
       case "timeline":
         sub.textContent = "Lane-packed day view. Overlapping meetings sit side by side.";
         break;
@@ -264,11 +277,14 @@
     const sync = s.sync || {};
     const mode = s.data_mode === "google" ? "GOOGLE LIVE" : s.data_mode === "demo" ? "SAMPLE DATA" : "NO SOURCE";
 
+    const tstats = s.task_stats || {};
     const cells = [
       ["Tracked", num(sync.count, 0), false],
       ["Today", `${num(stats.today_count, 0)} / ${stats.today_label || "0m"}`, false],
       ["This week", `${num(stats.week_count, 0)} / ${stats.week_label || "0m"}`, false],
       ["Clashes", num(stats.conflict_groups, 0), num(stats.conflict_groups, 0) > 0],
+      ["Tasks open", num(tstats.open, 0), false],
+      ["Overdue", num(tstats.overdue, 0), num(tstats.overdue, 0) > 0],
       ["Timezone", s.timezone || TZ_HINT, false],
       ["Synced", sync.last_sync_label || "never", false],
     ];
@@ -399,6 +415,15 @@
         note: (s.recommendations || [])[0] ? `best ${(s.recommendations[0].score || 0)}/100` : "widen your hours",
         pct: (s.recommendations || [])[0] ? num(s.recommendations[0].score, 0) : 0,
       },
+      {
+        view: "tasks", label: "Tasks open",
+        value: num((s.task_stats || {}).open, 0),
+        note: num((s.task_stats || {}).overdue, 0)
+          ? `${num((s.task_stats || {}).overdue, 0)} overdue`
+          : `${num((s.task_stats || {}).due_today, 0)} due today`,
+        pct: num((s.task_stats || {}).completion_pct, 0),
+        alert: num((s.task_stats || {}).overdue, 0) > 0,
+      },
     ];
 
     host.innerHTML = cards
@@ -492,6 +517,283 @@
         ${next.meet_link ? `<a class="pill pill-red sm" href="${esc(next.meet_link)}" target="_blank" rel="noreferrer">${icon("video")}<span>Join</span></a>` : ""}
         <button class="pill sm" data-event="${esc(next.id)}" type="button">Details</button>
       </div>`;
+  }
+
+  // ================================================================= TASKS
+  const URGENCY_TONE = { overdue: "is-red", today: "is-warn", week: "", later: "", someday: "", done: "is-good" };
+  const URGENCY_LABEL = { overdue: "Overdue", today: "Due today", week: "This week", later: "Scheduled", someday: "No deadline", done: "Done" };
+
+  function taskRow(task, i) {
+    const urgency = task.urgency || "someday";
+    const tone = URGENCY_TONE[urgency] || "";
+    const label = task.is_done ? "Done" : URGENCY_LABEL[urgency] || "Open";
+
+    const sub = [];
+    if (task.notes) sub.push(String(task.notes).replace(/\s+/g, " ").slice(0, 90));
+    if (task.list_name) sub.push(task.list_name);
+    if ((task.tags || []).length) sub.push((task.tags || []).join(" · "));
+
+    return `<button class="row rise${task.is_done ? " is-task-done" : ""}${urgency === "overdue" ? " is-overdue" : ""}"
+              style="${delay(i)}" data-task="${esc(task.id)}" type="button">
+      <span>
+        <span class="task-check${task.is_done ? " is-done" : ""}" role="checkbox"
+              aria-checked="${task.is_done}" data-toggle-task="${esc(task.id)}"
+              title="${task.is_done ? "Reopen" : "Complete"}">${icon("check")}</span>
+      </span>
+      <span>
+        <span class="row-name"><i class="prio p-${esc(task.priority || "normal")}"></i>${esc(task.title || "(untitled)")}</span>
+        <span class="row-sub">${esc(sub.join(" / ") || "no details")}</span>
+      </span>
+      <span class="row-cell is-dim">${esc(task.due_short || "—")}</span>
+      <span><span class="state ${tone}">${esc(label)}</span></span>
+      <span class="row-cell is-dim">${esc(task.source_name || "Local")}</span>
+      <span class="row-end"><span class="go-btn">${icon("arrow")}</span></span>
+    </button>`;
+  }
+
+  function filterTasks() {
+    const all = ((store.state && store.state.tasks) || []).slice();
+    switch (store.taskFilter) {
+      case "all": return all;
+      case "overdue": return all.filter((t) => t.urgency === "overdue");
+      case "today": return all.filter((t) => !t.is_done && t.urgency === "today");
+      case "week": return all.filter((t) => !t.is_done && ["overdue", "today", "week"].includes(t.urgency));
+      case "nodeadline": return all.filter((t) => !t.is_done && !t.due);
+      case "done": return all.filter((t) => t.is_done);
+      default: return all.filter((t) => !t.is_done);
+    }
+  }
+
+  function renderTasks() {
+    const host = $("#task-list");
+    const summary = $("#task-summary");
+    if (!host) return;
+    if (!store.state) { host.innerHTML = skeleton(); return; }
+
+    const items = filterTasks();
+    const total = (store.state.tasks || []).length;
+    if (summary) summary.textContent = `${items.length} / ${total}`;
+
+    if (!items.length) {
+      host.innerHTML = emptyState(
+        "task",
+        total ? "Nothing in this filter" : "No tasks yet",
+        total ? "Switch the filter to see the rest." : "Add one here, or sync a connected platform to mirror its tasks."
+      );
+      return;
+    }
+    host.innerHTML = items.map((t, i) => taskRow(t, i)).join("");
+  }
+
+  function renderTaskStats() {
+    const host = $("#task-stats");
+    if (!host) return;
+    const s = store.state;
+    if (!s) { host.innerHTML = ""; return; }
+    const t = s.task_stats || {};
+    const open = num(t.open, 0);
+
+    const cards = [
+      { label: "Open", value: open, note: `${num(t.total, 0)} tracked in total`, pct: num(t.total, 0) ? (open / num(t.total, 1)) * 100 : 0 },
+      { label: "Overdue", value: num(t.overdue, 0), note: num(t.overdue, 0) ? "past their deadline" : "nothing late", pct: open ? (num(t.overdue, 0) / open) * 100 : 0, alert: num(t.overdue, 0) > 0 },
+      { label: "Due today", value: num(t.due_today, 0), note: `${num(t.due_week, 0)} within 7 days`, pct: open ? (num(t.due_today, 0) / open) * 100 : 0 },
+      { label: "Completed", value: `${num(t.completion_pct, 0)}%`, note: `${num(t.done, 0)} finished`, pct: num(t.completion_pct, 0) },
+    ];
+
+    host.innerHTML = cards.map((c, i) => `
+      <div class="stat-card${c.alert ? " is-alert" : ""}" style="${delay(i, 55)}">
+        <span class="micro">${esc(c.label)}</span>
+        <div class="stat-value">${esc(c.value)}</div>
+        <div class="stat-note">${esc(c.note)}</div>
+        ${meter(clamp(c.pct, 0, 100))}
+      </div>`).join("");
+  }
+
+  function renderTaskSources() {
+    const host = $("#task-sources");
+    if (!host) return;
+    const sources = (store.state && store.state.task_sources) || [];
+    if (!sources.length) { host.innerHTML = ""; return; }
+
+    host.innerHTML = `<div class="source-list">${sources.map((src) => `
+      <div class="source-card">
+        <span class="source-icon">${icon(src.key === "local" ? "task" : src.key.startsWith("google") ? "google" : "box")}</span>
+        <div>
+          <strong>${esc(src.name)}</strong>
+          <p>${esc(src.last_error || src.hint || "")}</p>
+        </div>
+        <span class="state ${src.connected ? "is-good" : ""}">${
+          src.key === "local"
+            ? `${num(src.count, 0)} task${num(src.count, 0) === 1 ? "" : "s"}`
+            : src.connected ? `${num(src.count, 0)} synced` : "Not connected"
+        }</span>
+      </div>`).join("")}</div>`;
+  }
+
+  // ---------------------------------------------------------- task modal
+  function openTaskDetail(id) {
+    const task = ((store.state && store.state.tasks) || []).find((t) => String(t.id) === String(id));
+    if (!task) { toast("That task no longer exists.", "danger"); return; }
+
+    const chips = [];
+    const urgency = task.urgency || "someday";
+    chips.push(`<span class="state ${URGENCY_TONE[urgency] || ""}">${esc(task.is_done ? "Done" : URGENCY_LABEL[urgency] || "Open")}</span>`);
+    chips.push(`<span class="state">${esc(task.priority || "normal")} priority</span>`);
+    if (!task.is_editable) chips.push(`<span class="state">Read-only mirror</span>`);
+
+    const facts = [
+      ["Deadline", esc(task.due_label || "No deadline")],
+      ["Countdown", esc(task.countdown_label || "—")],
+      ["Status", esc(task.status || "todo")],
+      ["Source", esc(task.source_name || "Local") + (task.list_name ? ` / ${esc(task.list_name)}` : "")],
+    ];
+    if ((task.tags || []).length) facts.push(["Tags", esc((task.tags || []).join(", "))]);
+    if (task.notes) facts.push(["Details", esc(task.notes)]);
+
+    $("#modal-body").innerHTML = `
+      <span class="micro">Task / ${esc(task.source_name || "Local")}</span>
+      <h2 class="modal-title" id="modal-title">${esc(task.title || "(untitled)")}</h2>
+      <div class="modal-chips">${chips.join("")}</div>
+      <dl class="modal-facts">
+        ${facts.map(([k, v]) => `<div class="fact"><dt>${esc(k)}</dt><dd>${v}</dd></div>`).join("")}
+      </dl>
+      <div class="modal-actions">
+        <button class="pill pill-red sm" data-toggle-task="${esc(task.id)}" type="button">
+          ${icon("check")}<span>${task.is_done ? "Reopen" : "Complete"}</span>
+        </button>
+        ${task.is_editable ? `<button class="pill sm" data-edit-task="${esc(task.id)}" type="button">${icon("edit")}<span>Edit</span></button>` : ""}
+        ${task.is_editable ? `<button class="pill sm" data-delete-task="${esc(task.id)}" type="button">${icon("trash")}<span>Delete</span></button>` : ""}
+        ${task.url ? `<a class="pill sm" href="${esc(task.url)}" target="_blank" rel="noreferrer">${icon("arrow")}<span>Open at source</span></a>` : ""}
+      </div>`;
+    $("#modal-scrim").classList.remove("is-hidden");
+  }
+
+  /** Turn a UTC ISO stamp into the value a datetime-local input expects. */
+  function toLocalInput(iso) {
+    const d = parseLocal(iso);
+    if (!d) return "";
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  }
+
+  function openTaskForm(id) {
+    const task = id ? ((store.state && store.state.tasks) || []).find((t) => String(t.id) === String(id)) : null;
+    const editing = !!task;
+
+    $("#modal-body").innerHTML = `
+      <span class="micro">${editing ? "Edit task" : "New task"}</span>
+      <h2 class="modal-title" id="modal-title">${editing ? "Update this task" : "Add a task"}</h2>
+      <form class="modal-form" id="task-form" novalidate>
+        <label class="field">
+          <span class="micro">Title</span>
+          <input class="input" id="task-title" type="text" maxlength="300" required
+                 placeholder="What needs doing?" value="${esc(task ? task.title : "")}" />
+        </label>
+        <label class="field">
+          <span class="micro">Details</span>
+          <textarea class="input" id="task-notes" maxlength="2000"
+                    placeholder="A sentence or two of context">${esc(task ? task.notes : "")}</textarea>
+        </label>
+        <div class="form-pair">
+          <label class="field">
+            <span class="micro">Deadline</span>
+            <input class="input" id="task-due" type="datetime-local" value="${esc(task ? toLocalInput(task.local_due || task.due) : "")}" />
+          </label>
+          <label class="field">
+            <span class="micro">Priority</span>
+            <select class="input" id="task-priority">
+              ${["low", "normal", "high", "urgent"].map((p) =>
+                `<option value="${p}"${task && task.priority === p ? " selected" : ""}>${p}</option>`).join("")}
+            </select>
+          </label>
+          <label class="field">
+            <span class="micro">Status</span>
+            <select class="input" id="task-status">
+              ${["todo", "doing", "done"].map((st) =>
+                `<option value="${st}"${task && task.status === st ? " selected" : ""}>${st}</option>`).join("")}
+            </select>
+          </label>
+        </div>
+        <label class="field">
+          <span class="micro">Tags</span>
+          <input class="input" id="task-tags" type="text" placeholder="comma, separated"
+                 value="${esc(task ? (task.tags || []).join(", ") : "")}" />
+        </label>
+        <p class="form-error is-hidden" id="task-form-error"></p>
+        <div class="modal-actions">
+          <button class="pill pill-red sm" type="submit" id="task-save">
+            ${icon("check")}<span>${editing ? "Save changes" : "Add task"}</span>
+          </button>
+          <button class="pill sm" type="button" id="task-cancel">Cancel</button>
+        </div>
+      </form>`;
+    $("#modal-scrim").classList.remove("is-hidden");
+
+    const form = $("#task-form");
+    const cancel = $("#task-cancel");
+    if (cancel) cancel.addEventListener("click", closeModal);
+    if (form) form.addEventListener("submit", (e) => { e.preventDefault(); submitTaskForm(id); });
+    const title = $("#task-title");
+    if (title) title.focus();
+  }
+
+  async function submitTaskForm(id) {
+    const error = $("#task-form-error");
+    const save = $("#task-save");
+    const title = ($("#task-title") && $("#task-title").value || "").trim();
+
+    const showError = (msg) => {
+      if (!error) { toast(msg, "danger"); return; }
+      error.textContent = msg;
+      error.classList.remove("is-hidden");
+    };
+    if (!title) { showError("A task needs a title."); return; }
+
+    const payload = {
+      title,
+      notes: ($("#task-notes") && $("#task-notes").value) || "",
+      due: ($("#task-due") && $("#task-due").value) || null,
+      priority: ($("#task-priority") && $("#task-priority").value) || "normal",
+      status: ($("#task-status") && $("#task-status").value) || "todo",
+      tags: ($("#task-tags") && $("#task-tags").value) || "",
+    };
+
+    if (save) save.disabled = true;
+    const result = id ? await post(`/api/tasks/${encodeURIComponent(id)}`, payload) : await post("/api/tasks", payload);
+    if (save) save.disabled = false;
+
+    if (!result.ok) { showError(result.message || "Could not save that task."); return; }
+    closeModal();
+    toast(result.message || "Saved.", "good");
+    await refresh();
+  }
+
+  async function toggleTask(id) {
+    const result = await post(`/api/tasks/${encodeURIComponent(id)}/toggle`);
+    if (!result.ok) { toast(result.message || "Could not update that task.", "danger"); return; }
+    await refresh();
+    // Keep an open detail modal in step with what just changed.
+    const modal = $("#modal-scrim");
+    if (modal && !modal.classList.contains("is-hidden") && $("#modal-body [data-toggle-task]")) {
+      openTaskDetail(id);
+    }
+  }
+
+  async function deleteTask(id) {
+    if (!window.confirm("Delete this task? This cannot be undone.")) return;
+    const result = await post(`/api/tasks/${encodeURIComponent(id)}`, null, "DELETE");
+    if (!result.ok) { toast(result.message || "Could not delete that task.", "danger"); return; }
+    closeModal();
+    toast(result.message || "Task deleted.", "good");
+    await refresh();
+  }
+
+  async function syncTasks() {
+    const btn = $("#btn-task-sync");
+    if (btn) btn.disabled = true;
+    const result = await post("/api/tasks/sync");
+    if (btn) btn.disabled = false;
+    toast(result.message || (result.ok ? "Tasks synced." : "Task sync failed."), result.ok ? "good" : "danger");
+    await refresh();
   }
 
   // ------------------------------------------------------- month calendar
@@ -1026,6 +1328,18 @@
   const closeModal = () => $("#modal-scrim").classList.add("is-hidden");
 
   document.addEventListener("click", (e) => {
+    const toggle = e.target.closest("[data-toggle-task]");
+    if (toggle) { toggleTask(toggle.dataset.toggleTask); return; }
+
+    const edit = e.target.closest("[data-edit-task]");
+    if (edit) { openTaskForm(edit.dataset.editTask); return; }
+
+    const del = e.target.closest("[data-delete-task]");
+    if (del) { deleteTask(del.dataset.deleteTask); return; }
+
+    const task = e.target.closest("[data-task]");
+    if (task) { openTaskDetail(task.dataset.task); return; }
+
     const day = e.target.closest("[data-open-timeline]");
     if (day) {
       store.timelineDate = day.dataset.openTimeline;
@@ -1173,6 +1487,9 @@
       renderNextMeeting();
       renderMonth();
       renderAgenda();
+      renderTasks();
+      renderTaskStats();
+      renderTaskSources();
       renderConflicts();
       renderSettings();
       updateBell();
@@ -1265,6 +1582,13 @@
 
     const filter = $("#agenda-filter");
     if (filter) filter.addEventListener("change", () => { store.filter = filter.value; renderAgenda(); });
+
+    const taskFilter = $("#task-filter");
+    if (taskFilter) taskFilter.addEventListener("change", () => { store.taskFilter = taskFilter.value; renderTasks(); });
+    const taskNew = $("#btn-task-new");
+    if (taskNew) taskNew.addEventListener("click", () => openTaskForm(null));
+    const taskSync = $("#btn-task-sync");
+    if (taskSync) taskSync.addEventListener("click", syncTasks);
 
     const tlPrev = $("#tl-prev");
     if (tlPrev) tlPrev.addEventListener("click", () => shiftTimeline(-1));

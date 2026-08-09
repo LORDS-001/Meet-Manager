@@ -24,6 +24,7 @@ Six views, reachable from the icon rail or the top tabs:
 |---|---|
 | **Dashboard** | Live stat cards, notifications, what's up next, a month calendar, today's schedule with progress bars, load rings and a next-meeting countdown |
 | **Meetings** | Every tracked meeting, grouped by day, with search and filters |
+| **Tasks** | Task register with deadline, urgency, priority and source; create/edit/complete/delete, filters, and per-source status |
 | **Timeline** | A day view with events laid out into lanes, a now-line and clash outlines |
 | **Conflicts** | Double bookings grouped by cluster, plus back-to-back crunches |
 | **Find a slot** | Scored free slots with the reasoning behind each score |
@@ -42,6 +43,7 @@ Press `/` to jump to search, `Esc` to close anything.
 | **Detects meetings at the same time** | Sweep-line overlap detection groups clashing meetings into clusters, scores each clash `critical` / `major` / `minor`, and reports the exact overlap in minutes. Also flags back-to-back crunches with less breathing room than your buffer. |
 | **Reminds you 30 minutes before** | A background job scans every 20 seconds. When a meeting enters the lead window you get an in-app toast, a desktop notification, an entry in the notification drawer, and optionally an e-mail. Each reminder fires exactly once. |
 | **Recommends when to schedule** | Finds every free slot inside your working hours, then scores it 0–100 on time of day, that day's meeting load, calendar fragmentation, how soon it is, and weekday effects. Returns the best times with plain-English reasons. |
+| **Tracks your tasks** | Add tasks here with a deadline, priority, details and tags — or mirror them from a connected platform. Deadlines feed the same reminder engine as meetings: each task raises "due soon" once and "overdue" once, and completing it silences both. |
 
 All-day entries and invitations you have **declined** are correctly excluded from
 busy time and never raise a false conflict.
@@ -158,6 +160,27 @@ meetmanager/
         ├── styles.css
         └── app.js
 ```
+
+## Task sources
+
+Tasks come from two kinds of place:
+
+- **Added here** — created in the app. Fully editable: title, details, deadline,
+  priority, status and tags.
+- **Connected platforms** — mirrored **read-only**, because they are edited at
+  the source. You can still tick one off locally; the next sync from the source
+  wins.
+
+**Google Tasks** is wired up and rides on the Google account you already
+connect for your calendar. It needs one extra scope
+(`.../auth/tasks.readonly`), so **anyone already connected has to reconnect
+once** to grant it — existing consent does not cover a newly added scope.
+
+Adding another platform means writing one `TaskProvider` in
+[`app/tasks.py`](app/tasks.py) — `is_connected()`, `status_hint()`, `fetch()` —
+and appending it to `self.task_providers` in `MeetManagerService`. Nothing else
+in the app needs to change: reminders, stats, filters and the UI are all
+source-agnostic.
 
 ## CI/CD
 

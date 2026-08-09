@@ -15,16 +15,27 @@ from email.message import EmailMessage
 from typing import Any
 from zoneinfo import ZoneInfo, available_timezones
 
+from dateutil import parser as date_parser
+
 from . import analytics, demo_data
 from .config import Settings
 from .google_client import GOOGLE_LIBS_AVAILABLE, GoogleAuthError, GoogleCalendarClient
 from .models import Event, humanise_minutes
 from .store import Store
+from .tasks import (
+    PRIORITIES,
+    STATUSES,
+    GoogleTasksProvider,
+    Task,
+    build_task_stats,
+    new_task_id,
+)
 
 log = logging.getLogger("meetmanager.service")
 
 PREFS_KEY = "preferences"
 SYNC_STATE_KEY = "sync_state"
+TASK_SYNC_STATE_KEY = "task_sync_state"
 
 DEFAULT_PREFS: dict[str, Any] = {
     "timezone": None,               # None -> fall back to Settings.timezone
@@ -57,7 +68,12 @@ class MeetManagerService:
         self.store = Store(settings.db_path)
         self.google = GoogleCalendarClient(settings, self.store)
         self._sync_lock = threading.Lock()
+        self._task_sync_lock = threading.Lock()
         self._scheduler = None
+
+        # Every connected task platform. Add a provider here and the rest of
+        # the app picks it up with no further changes.
+        self.task_providers = [GoogleTasksProvider(self.google)]
 
         prefs = self.store.get(PREFS_KEY)
         if not isinstance(prefs, dict):
@@ -81,6 +97,12 @@ class MeetManagerService:
                 "interval",
                 seconds=max(60, self.settings.sync_interval_seconds),
                 id="sync",
+            )
+            scheduler.add_job(
+                self._safe_task_sync,
+                "interval",
+                seconds=max(60, self.settings.sync_interval_seconds),
+                id="task_sync",
             )
             scheduler.start()
             self._scheduler = scheduler
@@ -187,6 +209,214 @@ class MeetManagerService:
             return "demo"
         return "empty"
 
+    # ----------------------------------------------------------------- tasks
+    def tasks(self) -> list[Task]:
+        return self.store.all_tasks()
+
+    def task_views(self) -> list[dict[str, Any]]:
+        tz = self.tz
+        now = datetime.now(tz)
+        ordered = sorted(self.store.all_tasks(), key=lambda t: t.sort_key(now))
+        return [task.as_view(tz, now) for task in ordered]
+
+    def task_stats(self) -> dict[str, Any]:
+        return build_task_stats(self.store.all_tasks(), self.tz)
+
+    def _parse_due(self, raw: Any) -> datetime | None:
+        """Accept an ISO string; a naive one is read in the user's timezone.
+
+        The browser's datetime-local input sends no offset, so treating a naive
+        value as UTC would silently shift every deadline.
+        """
+        if raw in (None, "", "none"):
+            return None
+        if isinstance(raw, datetime):
+            parsed = raw
+        else:
+            try:
+                parsed = date_parser.isoparse(str(raw))
+            except (ValueError, TypeError):
+                return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=self.tz)
+        return parsed.astimezone(timezone.utc)
+
+    def _apply_task_fields(self, task: Task, payload: dict[str, Any]) -> Task:
+        if "title" in payload:
+            title = str(payload.get("title") or "").strip()
+            if title:
+                task.title = title[:300]
+        if "notes" in payload:
+            task.notes = str(payload.get("notes") or "").strip()[:2000]
+        if "due" in payload:
+            task.due = self._parse_due(payload.get("due"))
+        if "priority" in payload:
+            value = str(payload.get("priority") or "normal")
+            if value in PRIORITIES:
+                task.priority = value
+        if "tags" in payload:
+            raw = payload.get("tags")
+            if isinstance(raw, str):
+                raw = [chunk.strip() for chunk in raw.split(",")]
+            task.tags = [str(t).strip()[:40] for t in (raw or []) if str(t).strip()][:10]
+        if "status" in payload:
+            value = str(payload.get("status") or "todo")
+            if value in STATUSES:
+                task.status = value
+                task.completed_utc = datetime.now(timezone.utc) if value == "done" else None
+        task.updated_utc = datetime.now(timezone.utc)
+        return task
+
+    def create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
+        title = str((payload or {}).get("title") or "").strip()
+        if not title:
+            return {"ok": False, "message": "A task needs a title."}
+
+        task = Task(id=new_task_id(), title=title[:300], source="local", source_name="Local")
+        self._apply_task_fields(task, payload or {})
+        self.store.upsert_task(task)
+        self.scan_reminders()
+        return {"ok": True, "message": "Task added.", "task": task.as_view(self.tz)}
+
+    def update_task(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        task = self.store.get_task(task_id)
+        if task is None:
+            return {"ok": False, "message": "That task no longer exists."}
+        if not task.is_editable:
+            return {
+                "ok": False,
+                "message": f"{task.source_name} tasks are mirrored read-only - edit it in {task.source_name}.",
+            }
+
+        previous_due = task.due
+        self._apply_task_fields(task, payload or {})
+        self.store.upsert_task(task)
+
+        # A moved deadline invalidates any reminder already raised for it.
+        if task.due != previous_due:
+            self.store.delete_notifications_for(task.id)
+        self.scan_reminders()
+        return {"ok": True, "message": "Task updated.", "task": task.as_view(self.tz)}
+
+    def toggle_task(self, task_id: str) -> dict[str, Any]:
+        """Flip done/not-done. Allowed even for mirrored tasks: it is local
+        state only, and is overwritten on the next sync from the source."""
+        task = self.store.get_task(task_id)
+        if task is None:
+            return {"ok": False, "message": "That task no longer exists."}
+
+        now = datetime.now(timezone.utc)
+        if task.is_done:
+            task.status = "todo"
+            task.completed_utc = None
+        else:
+            task.status = "done"
+            task.completed_utc = now
+            # A completed task should stop nagging.
+            self.store.delete_notifications_for(task.id)
+        task.updated_utc = now
+        self.store.upsert_task(task)
+        return {
+            "ok": True,
+            "message": "Task completed." if task.is_done else "Task reopened.",
+            "task": task.as_view(self.tz),
+        }
+
+    def delete_task(self, task_id: str) -> dict[str, Any]:
+        task = self.store.get_task(task_id)
+        if task is None:
+            return {"ok": False, "message": "That task no longer exists."}
+        if not task.is_editable:
+            return {
+                "ok": False,
+                "message": f"{task.source_name} tasks are mirrored read-only - delete it in {task.source_name}.",
+            }
+        self.store.delete_task(task_id)
+        self.store.delete_notifications_for(task_id)
+        return {"ok": True, "message": "Task deleted."}
+
+    def task_sources(self) -> list[dict[str, Any]]:
+        counts: dict[str, int] = {}
+        for task in self.store.all_tasks():
+            counts[task.source] = counts.get(task.source, 0) + 1
+        state = self.store.get(TASK_SYNC_STATE_KEY) or {}
+
+        sources = [
+            {
+                "key": "local",
+                "name": "Added here",
+                "connected": True,
+                "count": counts.get("local", 0),
+                "hint": "Tasks you create in MeetManager.",
+                "editable": True,
+            }
+        ]
+        for provider in self.task_providers:
+            sources.append(
+                {
+                    "key": provider.key,
+                    "name": provider.name,
+                    "connected": provider.is_connected(),
+                    "count": counts.get(provider.key, 0),
+                    "hint": provider.status_hint(),
+                    "editable": False,
+                    "last_error": (state.get("errors") or {}).get(provider.key),
+                }
+            )
+        return sources
+
+    def sync_tasks(self) -> dict[str, Any]:
+        """Pull every connected provider. One failure never blocks the others."""
+        if not self._task_sync_lock.acquire(blocking=False):
+            return {"ok": True, "message": "A task sync is already running.", "count": self.store.task_count()}
+
+        try:
+            connected = [p for p in self.task_providers if p.is_connected()]
+            if not connected:
+                return {
+                    "ok": False,
+                    "reason": "not_connected",
+                    "message": "No task platform is connected yet. Connect Google to mirror Google Tasks.",
+                    "count": self.store.task_count(),
+                }
+
+            pulled = 0
+            errors: dict[str, str] = {}
+            for provider in connected:
+                try:
+                    fetched = provider.fetch()
+                    self.store.replace_tasks(fetched, provider.key)
+                    pulled += len(fetched)
+                except Exception as exc:  # noqa: BLE001 - report, never crash
+                    log.exception("Task sync failed for %s", provider.key)
+                    errors[provider.key] = str(exc)
+
+            self.store.set(
+                TASK_SYNC_STATE_KEY,
+                {
+                    "last_sync": datetime.now(timezone.utc).isoformat(),
+                    "count": pulled,
+                    "errors": errors,
+                },
+            )
+            self.scan_reminders()
+
+            if errors and not pulled:
+                return {"ok": False, "message": "; ".join(errors.values()), "count": self.store.task_count()}
+            message = f"Synced {pulled} task(s)."
+            if errors:
+                message += f" {len(errors)} source(s) failed."
+            return {"ok": True, "message": message, "count": self.store.task_count()}
+        finally:
+            self._task_sync_lock.release()
+
+    def _safe_task_sync(self) -> None:
+        try:
+            if any(p.is_connected() for p in self.task_providers):
+                self.sync_tasks()
+        except Exception:  # noqa: BLE001
+            log.exception("Background task sync raised")
+
     # ------------------------------------------------------------------ sync
     def sync(self) -> dict[str, Any]:
         """Pull fresh events from Google.  Returns a result envelope."""
@@ -211,7 +441,11 @@ class MeetManagerService:
                 "count": len(events),
             }
             self.store.set(SYNC_STATE_KEY, state)
-            self.store.prune_notifications({e.id for e in self.store.all_events()})
+            # Task ids must be in the keep-set: pruning on events alone would
+            # wipe every task deadline reminder on each calendar sync.
+            self.store.prune_notifications(
+                {e.id for e in self.store.all_events()} | {t.id for t in self.store.all_tasks()}
+            )
             self.scan_reminders()
             return {"ok": True, "message": f"Synced {len(events)} events.", "count": len(events)}
         except GoogleAuthError as exc:
@@ -239,11 +473,48 @@ class MeetManagerService:
             log.exception("Background sync raised")
 
     # ------------------------------------------------------------ demo mode
+    def _seed_sample_tasks(self) -> int:
+        """Give a first-time user something to look at on the Tasks view.
+
+        Only ever runs when there are no tasks at all, and the rows are normal
+        editable local tasks - so this can never overwrite real work.
+        """
+        if self.store.task_count() > 0:
+            return 0
+
+        now = datetime.now(timezone.utc)
+        samples = [
+            ("Send the Q3 board pack", "Numbers are final; needs the commentary section.", -26, "high", "todo"),
+            ("Reply to the Northwind proposal", "They asked for revised pricing on the retainer.", 3, "urgent", "doing"),
+            ("Book the team offsite venue", "Shortlist of three, needs a deposit to hold the date.", 52, "normal", "todo"),
+            ("Review the onboarding flow copy", "Design handed it over on Tuesday.", 120, "normal", "todo"),
+            ("Renew the SSL certificate", None, None, "low", "todo"),
+            ("Write up the retrospective notes", "Circulated already.", -70, "normal", "done"),
+        ]
+
+        created = 0
+        for title, notes, hours, priority, status in samples:
+            task = Task(
+                id=new_task_id(),
+                title=title,
+                notes=notes or "",
+                due=(now + timedelta(hours=hours)) if hours is not None else None,
+                status=status,
+                priority=priority,
+                source="local",
+                source_name="Local",
+                completed_utc=now if status == "done" else None,
+            )
+            self.store.upsert_task(task)
+            created += 1
+        return created
+
     def load_demo(self) -> dict[str, Any]:
         events = demo_data.generate(self.settings.owner_email, self.tz)
         self.store.clear_events("google")
         self.store.replace_events(events, "demo")
         self.store.clear_notifications()
+        self._seed_sample_tasks()
         self.store.set(
             SYNC_STATE_KEY,
             {"last_sync": datetime.now(timezone.utc).isoformat(), "last_error": None, "count": len(events)},
@@ -302,6 +573,58 @@ class MeetManagerService:
                 if added:
                     created += 1
                     self._maybe_email(event, minutes_away)
+
+        # Task deadlines. The unique (event_id, kind) index means each task
+        # raises "due soon" once and "overdue" once, never on a loop.
+        for task in self.tasks():
+            if task.is_done or task.due is None:
+                continue
+            local_due = task.due.astimezone(tz)
+            minutes_left = int((task.due - now).total_seconds() // 60)
+
+            if 0 <= minutes_left <= self.reminder_minutes:
+                added = self.store.add_notification(
+                    event_id=task.id,
+                    kind="task_due",
+                    title=f"Task due soon: {task.title}",
+                    body=(
+                        f"Due at {local_due.strftime('%H:%M')} "
+                        f"({humanise_minutes(minutes_left)} left)."
+                        + (f" From {task.source_name}." if task.source != "local" else "")
+                    ),
+                    payload={
+                        "task_id": task.id,
+                        "title": task.title,
+                        "due": task.due.isoformat(),
+                        "local_due": local_due.isoformat(),
+                        "minutes_left": minutes_left,
+                        "priority": task.priority,
+                        "source": task.source,
+                    },
+                )
+                if added:
+                    created += 1
+            elif minutes_left < 0:
+                added = self.store.add_notification(
+                    event_id=task.id,
+                    kind="task_overdue",
+                    title=f"Task overdue: {task.title}",
+                    body=(
+                        f"Was due {local_due.strftime('%a %d %b, %H:%M')} - "
+                        f"{humanise_minutes(abs(minutes_left))} ago."
+                    ),
+                    payload={
+                        "task_id": task.id,
+                        "title": task.title,
+                        "due": task.due.isoformat(),
+                        "local_due": local_due.isoformat(),
+                        "minutes_overdue": abs(minutes_left),
+                        "priority": task.priority,
+                        "source": task.source,
+                    },
+                )
+                if added:
+                    created += 1
 
         # Conflict alerts, raised once per clashing group.
         for group in analytics.find_conflicts(events):
@@ -476,6 +799,14 @@ class MeetManagerService:
             "timeline": self.timeline(timeline_date),
             "recommendations": self.recommendations(),
             "notifications": self.notifications(),
+            "tasks": self.task_views(),
+            "task_stats": self.task_stats(),
+            "task_sources": self.task_sources(),
+            "task_sync": {
+                "last_sync": (self.store.get(TASK_SYNC_STATE_KEY) or {}).get("last_sync"),
+                "count": self.store.task_count(),
+                "open": self.store.task_count(open_only=True),
+            },
             "google": {
                 "libs_available": GOOGLE_LIBS_AVAILABLE,
                 "configured": self.google.is_configured(),

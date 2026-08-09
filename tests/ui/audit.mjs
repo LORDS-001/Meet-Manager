@@ -56,7 +56,7 @@ async function audit(label, viewport, theme) {
     .catch(() => problems.push(`[${label}] stat cards never rendered`));
   await page.waitForTimeout(900);
 
-  const views = ["dashboard", "meetings", "timeline", "conflicts", "slots", "settings"];
+  const views = ["dashboard", "meetings", "tasks", "timeline", "conflicts", "slots", "settings"];
   for (const view of views) {
     await page.click(`.rail-btn[data-view="${view}"], #rail-settings[data-view="${view}"]`);
     await page.waitForTimeout(view === "timeline" || view === "slots" ? 1400 : 700);

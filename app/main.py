@@ -160,6 +160,63 @@ async def api_clear() -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Tasks
+# ---------------------------------------------------------------------------
+@app.get("/api/tasks")
+async def api_tasks() -> JSONResponse:
+    try:
+        return ok(tasks=service.task_views(), stats=service.task_stats(), sources=service.task_sources())
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Task list failed")
+        return fail(f"Could not load your tasks: {exc}", tasks=[])
+
+
+@app.post("/api/tasks")
+async def api_task_create(payload: dict[str, Any]) -> JSONResponse:
+    try:
+        return JSONResponse(service.create_task(payload or {}))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Task create failed")
+        return fail(f"Could not add that task: {exc}")
+
+
+@app.post("/api/tasks/sync")
+async def api_task_sync() -> JSONResponse:
+    try:
+        return JSONResponse(service.sync_tasks())
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Task sync failed")
+        return fail(f"Could not sync tasks: {exc}")
+
+
+@app.post("/api/tasks/{task_id}")
+async def api_task_update(task_id: str, payload: dict[str, Any]) -> JSONResponse:
+    try:
+        return JSONResponse(service.update_task(task_id, payload or {}))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Task update failed")
+        return fail(f"Could not update that task: {exc}")
+
+
+@app.post("/api/tasks/{task_id}/toggle")
+async def api_task_toggle(task_id: str) -> JSONResponse:
+    try:
+        return JSONResponse(service.toggle_task(task_id))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Task toggle failed")
+        return fail(f"Could not update that task: {exc}")
+
+
+@app.delete("/api/tasks/{task_id}")
+async def api_task_delete(task_id: str) -> JSONResponse:
+    try:
+        return JSONResponse(service.delete_task(task_id))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Task delete failed")
+        return fail(f"Could not delete that task: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Notifications
 # ---------------------------------------------------------------------------
 @app.get("/api/notifications")
