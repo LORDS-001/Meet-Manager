@@ -177,35 +177,28 @@ svg[viewBox] {
 }
 
 /* ------------------------------------------------------------- rail */
+/* A floating pill that hugs its icons and sits vertically centred against the
+   left edge, rather than a full-height column. `align-self` is what frees it
+   from the grid's default stretch; `.main` still fills the row. */
 .rail {
+  align-self: center;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 14px 0;
-  margin: 12px 0 12px 12px;
+  height: auto;
+  padding: 10px 8px;
+  margin-left: 12px;
   background: var(--invert-bg);
   border-radius: var(--r-xl);
-  overflow: hidden;
+  box-shadow: var(--shadow-md);
 }
-
-.rail-brand {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  margin-bottom: 10px;
-  border-radius: var(--r-md);
-  background: rgba(255, 255, 255, .1);
-  color: #fff;
-  text-decoration: none;
-  transition: background var(--fast) var(--ease), transform var(--fast) var(--ease);
-}
-.rail-brand:hover { background: rgba(255, 255, 255, .18); transform: translateY(-1px); }
-.rail-brand svg { width: 20px; height: 20px; }
 
 .rail-nav { display: flex; flex-direction: column; gap: 6px; }
-.rail-foot { margin-top: auto; }
+
+/* Settings is grouped apart from the five views by spacing alone - a divider
+   would fight the clean single-pill look. */
+.rail-foot { margin-top: 10px; }
 
 .rail-btn {
   position: relative;
@@ -283,6 +276,21 @@ svg[viewBox] {
   padding: 16px 22px;
   flex: none;
 }
+
+.brand {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--primary);
+  color: var(--on-primary);
+  text-decoration: none;
+  transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+.brand:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.brand svg { width: 19px; height: 19px; }
 
 .tabs {
   display: flex;
@@ -1679,8 +1687,13 @@ button.row { cursor: pointer; }
 @keyframes toastOut { to { opacity: 0; transform: translateX(16px) scale(.96); } }
 
 /* ======================================================== responsive */
-/* Drop the Export / Sync labels early: they buy back the width the search
-   field needs before anything is forced to wrap. */
+/* Reclaim top-bar width in two steps before anything is forced to wrap: the
+   theme toggle drops to icons first, then Export / Sync lose their labels. */
+@media (max-width: 1560px) {
+  .theme-toggle .tt-btn span { display: none; }
+  .tt-btn { padding: 0 9px; }
+}
+
 @media (max-width: 1500px) {
   #btn-export span, #btn-sync span { display: none; }
   #btn-export, #btn-sync { padding: 0 11px; }
@@ -1732,9 +1745,8 @@ button.row { cursor: pointer; }
     padding: 8px 10px;
     border-radius: var(--r-lg) var(--r-lg) 0 0;
   }
-  /* The brand mark goes, but Settings must stay reachable - it is the only
-     way into preferences on a phone, since the top tabs do not include it. */
-  .rail-brand { display: none; }
+  /* Settings must stay reachable here - it is the only way into preferences
+     on a phone, since the top tabs do not include it. */
   .rail-foot { margin-top: 0; }
   .rail-nav { flex-direction: row; gap: 4px; }
   [data-tip]::after { display: none; }
