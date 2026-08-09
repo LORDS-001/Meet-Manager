@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MeetManager &middot; {{ owner_email }}</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128197;</text></svg>" />
+</head>
+<body
+  data-owner="{{ owner_email }}"
+  data-reminder-minutes="{{ reminder_minutes }}"
+  data-timezone="{{ timezone }}"
+>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<div class="app-shell">
+
+  <!-- ================= SIDEBAR ================= -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">MM</div>
+      <div class="brand-text">
+        <strong>MeetManager</strong>
+        <span id="brand-email">{{ owner_email }}</span>
+      </div>
+    </div>
+
+    <nav class="nav" id="nav">
+      <button class="nav-item active" data-view="dashboard">
+        <span class="nav-icon">&#9636;</span><span>Dashboard</span>
+      </button>
+      <button class="nav-item" data-view="agenda">
+        <span class="nav-icon">&#9776;</span><span>All meetings</span>
+        <span class="nav-badge" id="badge-agenda">0</span>
+      </button>
+      <button class="nav-item" data-view="timeline">
+        <span class="nav-icon">&#9202;</span><span>Day timeline</span>
+      </button>
+      <button class="nav-item" data-view="conflicts">
+        <span class="nav-icon">&#9888;</span><span>Conflicts</span>
+        <span class="nav-badge danger" id="badge-conflicts">0</span>
+      </button>
+      <button class="nav-item" data-view="recommend">
+        <span class="nav-icon">&#10022;</span><span>Find a slot</span>
+      </button>
+      <button class="nav-item" data-view="settings">
+        <span class="nav-icon">&#9881;</span><span>Settings</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="next-up card-glass" id="next-up">
+        <span class="label">Next meeting</span>
+        <strong id="next-up-title">&mdash;</strong>
+        <div class="countdown" id="next-up-countdown">No upcoming meetings</div>
+      </div>
+      <div class="sync-line">
+        <span id="sync-dot" class="dot"></span>
+        <span id="sync-label">Loading&hellip;</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ================= MAIN ================= -->
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h1 id="view-title">Dashboard</h1>
+        <p id="view-subtitle" class="muted">Tracking every meeting on {{ owner_email }}</p>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn ghost" id="btn-theme" title="Toggle light / dark">&#9789;</button>
+        <button class="btn ghost bell" id="btn-bell" title="Notifications">
+          &#128276;<span class="bell-badge hidden" id="bell-badge">0</span>
+        </button>
+        <button class="btn ghost" id="btn-sync">&#8635; Sync</button>
+        <button class="btn primary" id="btn-connect">Connect Google Calendar</button>
+      </div>
+    </header>
+
+    <div id="banners"></div>
+
+    <!-- ---------- DASHBOARD ---------- -->
+    <section class="view active" id="view-dashboard">
+      <div class="stat-grid" id="stat-grid"></div>
+
+      <div class="split">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>This week's load</h2>
+            <span class="muted small" id="week-summary"></span>
+          </div>
+          <div class="load-chart" id="load-chart"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Up next</h2>
+            <span class="muted small">Live countdown</span>
+          </div>
+          <div id="upnext-list" class="event-list"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Needs your attention</h2>
+          <span class="muted small" id="attention-summary"></span>
+        </div>
+        <div id="attention-list"></div>
+      </div>
+    </section>
+
+    <!-- ---------- AGENDA ---------- -->
+    <section class="view" id="view-agenda">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Every tracked meeting</h2>
+          <div class="filters">
+            <input type="search" id="agenda-search" class="input" placeholder="Search title, person, location&hellip;" />
+            <select id="agenda-filter" class="input">
+              <option value="all">All meetings</option>
+              <option value="conflict">Only conflicts</option>
+              <option value="meet">Only video calls</option>
+              <option value="today">Today</option>
+              <option value="week">Next 7 days</option>
+            </select>
+          </div>
+        </div>
+        <div id="agenda-list"></div>
+      </div>
+    </section>
+
+    <!-- ---------- TIMELINE ---------- -->
+    <section class="view" id="view-timeline">
+      <div class="panel">
+        <div class="panel-head">
+          <h2 id="timeline-title">Day timeline</h2>
+          <div class="filters">
+            <button class="btn ghost small" id="tl-prev">&#8249;</button>
+            <input type="date" id="tl-date" class="input" />
+            <button class="btn ghost small" id="tl-next">&#8250;</button>
+            <button class="btn ghost small" id="tl-today">Today</button>
+          </div>
+        </div>
+        <div id="timeline-allday" class="allday-row"></div>
+        <div class="timeline-wrap">
+          <div class="timeline-hours" id="timeline-hours"></div>
+          <div class="timeline-canvas" id="timeline-canvas"></div>
+        </div>
+        <p class="muted small legend">
+          <span class="legend-chip overlap"></span> Overlapping blocks sit side by side &mdash; a red outline means a real clash.
+        </p>
+      </div>
+    </section>
+
+    <!-- ---------- CONFLICTS ---------- -->
+    <section class="view" id="view-conflicts">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Double bookings</h2>
+          <span class="muted small" id="conflict-summary"></span>
+        </div>
+        <div id="conflict-list"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Back-to-back crunches</h2>
+          <span class="muted small">Meetings with less breathing room than your buffer</span>
+        </div>
+        <div id="tight-list"></div>
+      </div>
+    </section>
+
+    <!-- ---------- RECOMMEND ---------- -->
+    <section class="view" id="view-recommend">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>When should I schedule this?</h2>
+          <span class="muted small">Scored against your calendar, working hours and meeting load</span>
+        </div>
+        <div class="reco-controls">
+          <label class="field">
+            <span>Meeting length</span>
+            <select id="reco-duration" class="input">
+              <option value="15">15 minutes</option>
+              <option value="30" selected>30 minutes</option>
+              <option value="45">45 minutes</option>
+              <option value="60">1 hour</option>
+              <option value="90">1.5 hours</option>
+              <option value="120">2 hours</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Look ahead</span>
+            <select id="reco-days" class="input">
+              <option value="3">3 days</option>
+              <option value="7">1 week</option>
+              <option value="10" selected>10 days</option>
+              <option value="14">2 weeks</option>
+              <option value="30">1 month</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>How many</span>
+            <select id="reco-limit" class="input">
+              <option value="5">Top 5</option>
+              <option value="8" selected>Top 8</option>
+              <option value="12">Top 12</option>
+            </select>
+          </label>
+          <button class="btn primary" id="btn-reco">Find best times</button>
+        </div>
+        <div id="reco-list" class="reco-list"></div>
+      </div>
+    </section>
+
+    <!-- ---------- SETTINGS ---------- -->
+    <section class="view" id="view-settings">
+      <div class="panel">
+        <div class="panel-head"><h2>Reminders &amp; working hours</h2></div>
+        <div class="settings-grid">
+          <label class="field">
+            <span>Remind me before a meeting</span>
+            <select id="set-reminder" class="input">
+              <option value="5">5 minutes</option>
+              <option value="10">10 minutes</option>
+              <option value="15">15 minutes</option>
+              <option value="30" selected>30 minutes</option>
+              <option value="60">1 hour</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Timezone</span>
+            <select id="set-timezone" class="input"></select>
+          </label>
+          <label class="field">
+            <span>Working day starts</span>
+            <input type="time" id="set-work-start" class="input" />
+          </label>
+          <label class="field">
+            <span>Working day ends</span>
+            <input type="time" id="set-work-end" class="input" />
+          </label>
+          <label class="field">
+            <span>Minimum gap between meetings</span>
+            <select id="set-buffer" class="input">
+              <option value="0">None</option>
+              <option value="5">5 minutes</option>
+              <option value="10" selected>10 minutes</option>
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+            </select>
+          </label>
+          <div class="field">
+            <span>Working days</span>
+            <div class="daypicker" id="set-workdays"></div>
+          </div>
+        </div>
+
+        <div class="toggles">
+          <label class="switch-row">
+            <input type="checkbox" id="set-browser-notif" />
+            <span>Desktop notifications <em id="notif-perm" class="muted small"></em></span>
+          </label>
+          <label class="switch-row">
+            <input type="checkbox" id="set-email-notif" />
+            <span>E-mail reminders <em id="email-hint" class="muted small"></em></span>
+          </label>
+        </div>
+
+        <div class="settings-actions">
+          <button class="btn primary" id="btn-save-settings">Save settings</button>
+          <button class="btn ghost" id="btn-test-notif">Send a test reminder</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Data source</h2></div>
+        <div id="source-panel" class="source-panel"></div>
+        <div class="settings-actions">
+          <button class="btn ghost" id="btn-demo">Load sample calendar</button>
+          <button class="btn ghost" id="btn-clear">Clear all tracked data</button>
+          <button class="btn ghost danger" id="btn-disconnect">Disconnect Google</button>
+        </div>
+        <details class="setup-help">
+          <summary>How do I connect my real Google Calendar?</summary>
+          <ol>
+            <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Google Cloud Console &rarr; Credentials</a>.</li>
+            <li>Enable the <strong>Google Calendar API</strong> for your project.</li>
+            <li>Create an <strong>OAuth client ID</strong> of type <strong>Web application</strong>.</li>
+            <li>Add this exact authorised redirect URI:
+              <code id="redirect-uri">http://127.0.0.1:8000/auth/callback</code></li>
+            <li>Under <em>OAuth consent screen &rarr; Test users</em>, add <code>{{ owner_email }}</code>.</li>
+            <li>Copy the client ID and secret into the <code>.env</code> file, then restart the app.</li>
+          </ol>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <!-- ================= NOTIFICATION DRAWER ================= -->
+  <div class="drawer-backdrop hidden" id="drawer-backdrop"></div>
+  <aside class="drawer hidden" id="drawer">
+    <div class="drawer-head">
+      <h2>Notifications</h2>
+      <div>
+        <button class="btn ghost small" id="btn-dismiss-all">Clear all</button>
+        <button class="btn ghost small" id="btn-close-drawer">&times;</button>
+      </div>
+    </div>
+    <div id="drawer-list" class="drawer-list"></div>
+  </aside>
+
+  <!-- ================= EVENT DETAIL MODAL ================= -->
+  <div class="modal-backdrop hidden" id="modal-backdrop">
+    <div class="modal" id="modal" role="dialog" aria-modal="true">
+      <button class="modal-close" id="modal-close">&times;</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
