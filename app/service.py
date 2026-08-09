@@ -539,6 +539,56 @@ class MeetManagerService:
                     created += 1
                     self._maybe_email(event, minutes_away)
 
+        # All-day meetings are excluded from `counts_as_busy` on purpose - they
+        # must not create false clashes - but that also meant they raised no
+        # reminder at all. They have no meaningful start time, so remind once
+        # on the morning of the day, from the start of working hours.
+        # One digest, not one per event: a calendar can easily carry a dozen
+        # all-day entries on the same date, and twelve separate notifications
+        # every morning is worse than none.
+        work_start_today = datetime.combine(now.date(), self.work_start, tzinfo=tz)
+        if now >= work_start_today:
+            today_all_day = []
+            for event in self.events():
+                if not event.all_day or event.is_cancelled or event.is_declined:
+                    continue
+                local_start = event.start.astimezone(tz)
+                local_end = event.end.astimezone(tz)
+                # An all-day end date is exclusive; guard a malformed span.
+                end_date = max(local_end.date(), local_start.date() + timedelta(days=1))
+                if local_start.date() <= now.date() < end_date:
+                    today_all_day.append(event)
+
+            if today_all_day:
+                today_all_day.sort(key=lambda e: (e.start, e.summary))
+                names = [e.summary for e in today_all_day]
+                count = len(names)
+
+                if count == 1:
+                    title = f"Today: {names[0]}"
+                    body = "All day today."
+                else:
+                    title = f"Today: {count} all-day items"
+                    shown = ", ".join(names[:3])
+                    body = shown + (f", and {count - 3} more." if count > 3 else ".")
+
+                # Anchored on a real event id so a calendar sync's prune keeps
+                # it, and keyed per date so it fires once a day.
+                added = self.store.add_notification(
+                    event_id=min(e.id for e in today_all_day),
+                    kind=f"allday:{now.date().isoformat()}",
+                    title=title,
+                    body=body,
+                    payload={
+                        "all_day": True,
+                        "date_key": now.date().isoformat(),
+                        "count": count,
+                        "summaries": names[:10],
+                    },
+                )
+                if added:
+                    created += 1
+
         # Task deadlines. The unique (event_id, kind) index means each task
         # raises "due soon" once and "overdue" once, never on a loop.
         for task in self.tasks():

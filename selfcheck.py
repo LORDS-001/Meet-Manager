@@ -176,6 +176,62 @@ def main() -> int:
             service.shutdown()
         return f"{state['stats']['total_tracked']} events, {len(state['conflicts'])} conflicts, {len(state['recommendations'])} slots"
 
+    @check("All-day meetings raise a reminder")
+    def _():
+        # Regression guard: all-day events are excluded from counts_as_busy so
+        # they cannot create false clashes, which previously meant they raised
+        # no reminder at all.
+        from app.models import Event
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            settings.db_path = Path(tmp) / "allday.db"
+            service = MeetManagerService(settings)
+            tz = service.tz
+            now = datetime.now(tz)
+            midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+            today = Event(id="ad-today", summary="All-day workshop", all_day=True,
+                          start=midnight, end=midnight + timedelta(days=1))
+            multi = Event(id="ad-multi", summary="Conference week", all_day=True,
+                          start=midnight, end=midnight + timedelta(days=3))
+            future = Event(id="ad-future", summary="Next week offsite", all_day=True,
+                           start=midnight + timedelta(days=7), end=midnight + timedelta(days=8))
+            declined = Event(id="ad-declined", summary="Declined all-day", all_day=True,
+                             start=midnight, end=midnight + timedelta(days=1),
+                             response_status="declined")
+            service.store.replace_events([today, multi, future, declined], "google")
+
+            # Working hours gate the reminder, so evaluate as if mid-morning.
+            service.update_prefs({"work_start": "00:00"})
+            service.scan_reminders()
+            digests = [n for n in service.notifications() if n["kind"].startswith("allday")]
+
+            assert len(digests) == 1, f"expected exactly one all-day digest, got {len(digests)}"
+            digest = digests[0]
+            # Two qualify today (single + multi-day); the future and declined must not.
+            assert digest["payload"]["count"] == 2, digest["payload"]
+            assert "All-day workshop" in digest["body"], digest["body"]
+            assert "Conference week" in digest["body"], digest["body"]
+            assert "Next week offsite" not in digest["body"], "a future all-day event leaked in"
+            assert "Declined" not in digest["body"], "a declined all-day event leaked in"
+
+            before = len(service.notifications())
+            service.scan_reminders()
+            service.scan_reminders()
+            assert len(service.notifications()) == before, "re-scanning duplicated the all-day digest"
+
+            # It must survive the prune a calendar sync performs, which means
+            # being anchored on a real event id rather than a synthetic one.
+            service.store.prune_notifications({e.id for e in service.store.all_events()})
+            assert [n for n in service.notifications() if n["kind"].startswith("allday")], (
+                "the all-day digest was pruned - it is not anchored on a real event"
+            )
+
+            # An all-day event still must not be treated as busy time.
+            assert not today.counts_as_busy, "all-day events must stay out of busy time"
+            service.shutdown()
+        return "one digest covering 2 events; future and declined excluded; survives prune"
+
     @check("Task CRUD round-trips")
     def _():
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
