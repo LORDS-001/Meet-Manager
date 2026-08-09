@@ -71,6 +71,11 @@ class Settings:
     owner_email: str = field(default_factory=lambda: _env("OWNER_EMAIL", "adedokundaniel16@gmail.com"))
     host: str = field(default_factory=lambda: _env("HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: _env_int("PORT", 8000))
+    # The address the app is reached at from outside. Required once it is not
+    # running on localhost: behind a host like Render the process binds
+    # 0.0.0.0 on an arbitrary port, so a redirect URI derived from HOST/PORT
+    # would be "http://0.0.0.0:10000/..." - which Google rejects.
+    public_url: str = field(default_factory=lambda: _env("PUBLIC_URL").rstrip("/"))
     timezone: str = field(default_factory=lambda: _safe_timezone(_env("TIMEZONE", "Africa/Lagos")))
 
     google_client_id: str = field(default_factory=lambda: _env("GOOGLE_CLIENT_ID"))
@@ -99,8 +104,14 @@ class Settings:
         return ZoneInfo(self.timezone)
 
     @property
+    def base_url(self) -> str:
+        if self.public_url:
+            return self.public_url
+        return f"http://{self.host}:{self.port}"
+
+    @property
     def redirect_uri(self) -> str:
-        return f"http://{self.host}:{self.port}/auth/callback"
+        return f"{self.base_url}/auth/callback"
 
     @property
     def credentials_path(self) -> Path:

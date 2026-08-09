@@ -1,0 +1,65 @@
+# Render Blueprint - https://render.com/docs/blueprint-spec
+#
+# Deploy:
+#   1. Push this file to the repo.
+#   2. Render dashboard -> New -> Blueprint -> pick this repository.
+#   3. Fill in the env vars marked `sync: false` (Render prompts for them).
+#   4. After the first deploy, copy the service URL into PUBLIC_URL and add
+#      "<PUBLIC_URL>/auth/callback" to the Google OAuth client's authorised
+#      redirect URIs. Redeploy.
+#
+# READ THIS BEFORE GOING PUBLIC
+# ----------------------------
+# MeetManager is single-tenant. It stores exactly one Google token, and its
+# events/tasks tables have no owner column, so:
+#   * anyone who opens the URL sees whoever's calendar is connected;
+#   * a second person clicking Connect overwrites the first person's token.
+# Do not expose this to people you would not hand your calendar to until
+# per-user accounts exist. See the "Multi-user" section in README.md.
+
+services:
+  - type: web
+    name: meetmanager
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: frankfurt          # nearest to Africa/Lagos; change if you prefer
+    plan: starter              # NOT free: the free plan has no persistent disk
+                               # and sleeps after 15 minutes idle, which stops
+                               # the reminder scheduler.
+    healthCheckPath: /healthz
+    autoDeploy: true
+
+    # SQLite lives on disk. Without this, every deploy and every restart wipes
+    # the database - including the OAuth token, so you would reconnect Google
+    # after each push.
+    disk:
+      name: meetmanager-data
+      mountPath: /app/data
+      sizeGB: 1
+
+    envVars:
+      # The public address of this service, e.g. https://meetmanager.onrender.com
+      # Without it the OAuth redirect is derived from HOST/PORT and comes out
+      # as http://0.0.0.0:10000/auth/callback, which Google rejects.
+      - key: PUBLIC_URL
+        sync: false
+
+      - key: OWNER_EMAIL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+      - key: TIMEZONE
+        value: Africa/Lagos
+      - key: REMINDER_MINUTES
+        value: "30"
+      - key: SYNC_INTERVAL_SECONDS
+        value: "300"
+
+      # Optional e-mail reminders; leave unset to disable.
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
