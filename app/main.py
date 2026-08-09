@@ -45,8 +45,45 @@ APP_DIR = Path(__file__).resolve().parent
 service = MeetManagerService(settings)
 
 SESSION_USER_KEY = "uid"
+SESSION_ACCOUNTS_KEY = "accounts"   # every account authenticated in this browser
 SESSION_OAUTH_KEY = "oauth_pending"
 SECRET_KV_KEY = "session_secret"
+
+
+def _session_accounts(request: Request) -> list[dict[str, Any]]:
+    """The accounts this browser may switch between.
+
+    Only ids that completed a Google sign-in *in this session* are listed, so
+    switching never grants access to an account the visitor did not prove they
+    control. Ids whose account has since been deleted are dropped.
+    """
+    ids = request.session.get(SESSION_ACCOUNTS_KEY) or []
+    active = request.session.get(SESSION_USER_KEY)
+    out: list[dict[str, Any]] = []
+    kept: list[str] = []
+    for uid in ids:
+        user = service.store.get_user(uid)
+        if user is None:
+            continue
+        kept.append(uid)
+        out.append(
+            {
+                "id": user["id"],
+                "email": user["email"],
+                "name": user.get("name") or user["email"].split("@")[0],
+                "active": user["id"] == active,
+            }
+        )
+    if kept != ids:
+        request.session[SESSION_ACCOUNTS_KEY] = kept
+    return out
+
+
+def _remember_account(request: Request, user_id: str) -> None:
+    ids = [i for i in (request.session.get(SESSION_ACCOUNTS_KEY) or []) if i != user_id]
+    ids.append(user_id)
+    request.session[SESSION_ACCOUNTS_KEY] = ids[-10:]   # a sane ceiling
+    request.session[SESSION_USER_KEY] = user_id
 
 
 def _session_secret() -> str:
@@ -176,7 +213,56 @@ async def api_me(request: Request) -> JSONResponse:
     user = current_user(request)
     if user is None:
         return _auth_required()
-    return ok(user={"id": user["id"], "email": user["email"], "name": user.get("name", "")})
+    return ok(
+        user={"id": user["id"], "email": user["email"], "name": user.get("name", "")},
+        accounts=_session_accounts(request),
+    )
+
+
+@app.get("/api/accounts")
+async def api_accounts(request: Request) -> JSONResponse:
+    if current_user(request) is None:
+        return _auth_required()
+    return ok(accounts=_session_accounts(request))
+
+
+@app.post("/api/accounts/switch")
+async def api_accounts_switch(request: Request, payload: dict[str, Any]) -> JSONResponse:
+    if current_user(request) is None:
+        return _auth_required()
+
+    target = str((payload or {}).get("id") or "")
+    allowed = {a["id"] for a in _session_accounts(request)}
+    if target not in allowed:
+        # Not signed in as that account in this browser - make them prove it.
+        return fail("Sign in to that account first.", status=403, needs_auth=True)
+
+    request.session[SESSION_USER_KEY] = target
+    user = service.store.get_user(target)
+    service.store.touch_user(target)
+    return ok(
+        message=f"Switched to {user['email']}.",
+        user={"id": user["id"], "email": user["email"], "name": user.get("name", "")},
+    )
+
+
+@app.post("/api/accounts/forget")
+async def api_accounts_forget(request: Request, payload: dict[str, Any]) -> JSONResponse:
+    """Drop an account from this browser's switcher. Data is untouched."""
+    if current_user(request) is None:
+        return _auth_required()
+
+    target = str((payload or {}).get("id") or "")
+    ids = [i for i in (request.session.get(SESSION_ACCOUNTS_KEY) or []) if i != target]
+    request.session[SESSION_ACCOUNTS_KEY] = ids
+
+    if request.session.get(SESSION_USER_KEY) == target:
+        # Removed the active one - fall back to another, or sign out entirely.
+        request.session[SESSION_USER_KEY] = ids[-1] if ids else None
+        if not ids:
+            request.session.clear()
+            return ok(message="Removed. Signed out.", signed_out=True)
+    return ok(message="Removed from this device.", accounts=_session_accounts(request))
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +277,7 @@ async def api_state(request: Request, day: str | None = Query(default=None)) -> 
     try:
         state = svc.state(timeline_date=_parse_date(day))
         state["user"] = {"id": user["id"], "email": user["email"], "name": user.get("name", "")}
+        state["accounts"] = _session_accounts(request)
         return ok(state=state)
     except Exception as exc:  # noqa: BLE001
         log.exception("Failed to build state")
@@ -436,11 +523,15 @@ async def api_set_preferences(request: Request, payload: dict[str, Any]) -> JSON
 # Google OAuth - doubles as sign-in
 # ---------------------------------------------------------------------------
 @app.get("/auth/login", response_model=None)
-async def auth_login(request: Request) -> RedirectResponse:
+async def auth_login(request: Request, add: int = Query(default=0)) -> RedirectResponse:
     try:
-        # Unbound client: no account exists yet on a first sign-in.
+        # `add=1` means "connect another mailbox": drop the login hint and ask
+        # Google for its account chooser, otherwise it silently reuses the one
+        # already signed in and the user can never add a second.
+        adding = bool(add)
         url, pending = service.google.authorization_url(
-            login_hint=(current_user(request) or {}).get("email")
+            login_hint=None if adding else (current_user(request) or {}).get("email"),
+            force_select=adding,
         )
         request.session[SESSION_OAUTH_KEY] = pending
         return RedirectResponse(url, status_code=307)
@@ -477,7 +568,7 @@ async def auth_callback(request: Request) -> RedirectResponse:
         scoped.google.adopt_credentials_from(service.google)
         service.google.forget_credentials()
 
-        request.session[SESSION_USER_KEY] = user["id"]
+        _remember_account(request, user["id"])
     except GoogleAuthError as exc:
         return RedirectResponse(f"/?auth_error={_quote(str(exc))}", status_code=307)
     except Exception as exc:  # noqa: BLE001

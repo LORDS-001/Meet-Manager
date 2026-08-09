@@ -144,7 +144,9 @@ class GoogleCalendarClient:
             state=state,
         )
 
-    def authorization_url(self, login_hint: str | None = None) -> tuple[str, dict[str, Any]]:
+    def authorization_url(
+        self, login_hint: str | None = None, force_select: bool = False
+    ) -> tuple[str, dict[str, Any]]:
         """Return (url, pending) where `pending` must be stashed by the caller.
 
         It goes in the browser session rather than the store: sign-in happens
@@ -158,12 +160,20 @@ class GoogleCalendarClient:
         fails with "Missing code verifier".
         """
         flow = self._flow()
-        url, state = flow.authorization_url(
-            access_type="offline",
-            include_granted_scopes="true",
-            prompt="consent",
-            login_hint=login_hint or self.settings.owner_email,
-        )
+        params: dict[str, Any] = {
+            "access_type": "offline",
+            "include_granted_scopes": "true",
+            # select_account makes Google show its chooser instead of silently
+            # reusing the session's current account - required for adding a
+            # second mailbox.
+            "prompt": "select_account consent" if force_select else "consent",
+        }
+        if not force_select:
+            hint = login_hint or self.settings.owner_email
+            if hint:
+                params["login_hint"] = hint
+
+        url, state = flow.authorization_url(**params)
         return url, {"state": state, "code_verifier": getattr(flow, "code_verifier", None)}
 
     def finish_auth(

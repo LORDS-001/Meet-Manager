@@ -1334,6 +1334,12 @@
   const closeModal = () => $("#modal-scrim").classList.add("is-hidden");
 
   document.addEventListener("click", (e) => {
+    const forget = e.target.closest("[data-forget-account]");
+    if (forget) { e.stopPropagation(); forgetAccount(forget.dataset.forgetAccount); return; }
+
+    const swap = e.target.closest("[data-switch-account]");
+    if (swap) { switchAccount(swap.dataset.switchAccount); return; }
+
     const toggle = e.target.closest("[data-toggle-task]");
     if (toggle) { toggleTask(toggle.dataset.toggleTask); return; }
 
@@ -1464,19 +1470,96 @@
     renderDrawer();
   }
 
-  function updateConnectButton() {
-    const btn = $("#btn-connect");
-    const label = $("#btn-connect-label");
-    if (!btn || !label || !store.state) return;
-    if ((store.state.google || {}).connected) {
-      label.textContent = "Connected";
-      btn.disabled = true;
-      btn.classList.remove("pill-red");
-    } else {
-      label.textContent = "Connect";
-      btn.disabled = false;
-      btn.classList.add("pill-red");
+  // ---------------------------------------------------------- account menu
+  function renderAccount() {
+    const s = store.state;
+    if (!s || !s.user) return;
+
+    const email = s.user.email || "";
+    const chipEmail = $("#account-email");
+    const avatar = $("#account-avatar");
+    if (chipEmail) chipEmail.textContent = email;
+    if (avatar) avatar.textContent = initials(s.user.name || email);
+
+    const connected = (s.google || {}).connected;
+    const chip = $("#btn-account");
+    if (chip) chip.classList.toggle("pill-red", !connected);
+
+    const menu = $("#account-menu");
+    if (!menu) return;
+
+    // An empty array is truthy, so length has to be checked explicitly or a
+    // session with no recorded account list renders a menu that never says
+    // who you are signed in as.
+    const accounts =
+      Array.isArray(s.accounts) && s.accounts.length
+        ? s.accounts
+        : [{ id: s.user.id, email, name: s.user.name, active: true }];
+    const active = accounts.filter((a) => a.active);
+    const others = accounts.filter((a) => !a.active);
+
+    const row = (a) => `<div class="menu-item${a.active ? " is-active" : ""}"
+        ${a.active ? "" : `data-switch-account="${esc(a.id)}" role="menuitem" tabindex="0"`}>
+        <span class="mi-avatar">${esc(initials(a.name || a.email))}</span>
+        <span class="mi-text">
+          <b>${esc(a.email)}</b>
+          <em>${a.active ? "signed in" : "switch to this"}</em>
+        </span>
+        ${a.active ? icon("check") : `<button class="menu-forget" data-forget-account="${esc(a.id)}"
+             type="button" title="Remove from this device" aria-label="Remove ${esc(a.email)}">${icon("close")}</button>`}
+      </div>`;
+
+    menu.innerHTML = `
+      <span class="menu-label">Signed in as</span>
+      ${active.map(row).join("")}
+      ${others.length ? `<hr><span class="menu-label">Other mailboxes</span>${others.map(row).join("")}` : ""}
+      <hr>
+      ${connected ? "" : `<a class="menu-item" href="/auth/login">${icon("google")}<span class="mi-text"><b>Reconnect Google</b><em>calendar access has lapsed</em></span></a>`}
+      <a class="menu-item" href="/auth/login?add=1" role="menuitem">
+        ${icon("plus")}<span class="mi-text"><b>Add another mailbox</b><em>connect a second Google account</em></span>
+      </a>
+      <button class="menu-item is-danger" id="menu-signout" type="button" role="menuitem">
+        ${icon("logout")}<span class="mi-text"><b>Sign out</b><em>your data stays for next time</em></span>
+      </button>`;
+
+    const signout = $("#menu-signout");
+    if (signout) {
+      signout.addEventListener("click", async () => {
+        await post("/auth/signout");
+        window.location.href = "/";
+      });
     }
+  }
+
+  function toggleAccountMenu(force) {
+    const menu = $("#account-menu");
+    const chip = $("#btn-account");
+    if (!menu || !chip) return;
+    const open = force === undefined ? menu.classList.contains("is-hidden") : force;
+    menu.classList.toggle("is-hidden", !open);
+    chip.setAttribute("aria-expanded", String(open));
+  }
+
+  async function switchAccount(id) {
+    const result = await post("/api/accounts/switch", { id });
+    if (!result.ok) {
+      toast(result.message || "Could not switch mailbox.", "danger");
+      if (result.needs_auth) window.location.href = "/auth/login?add=1";
+      return;
+    }
+    // A different mailbox means an entirely different dataset; a reload is
+    // both the simplest and the safest way to avoid mixing the two.
+    window.location.reload();
+  }
+
+  async function forgetAccount(id) {
+    if (!window.confirm("Remove this mailbox from this device? Its data is kept and you can sign in again.")) return;
+    const result = await post("/api/accounts/forget", { id });
+    if (!result.ok) { toast(result.message || "Could not remove that mailbox.", "danger"); return; }
+    if (result.signed_out) { window.location.href = "/"; return; }
+    toast(result.message || "Removed.", "good");
+    await refresh();
+    renderAccount();
   }
 
   // ================================================================ RENDER
@@ -1499,7 +1582,7 @@
       renderConflicts();
       renderSettings();
       updateBell();
-      updateConnectButton();
+      renderAccount();
       pushDesktopNotifications();
       if (store.view === "timeline") renderTimeline();
     } catch (err) {
@@ -1547,14 +1630,17 @@
       });
     }
 
-    const signout = $("#btn-signout");
-    if (signout) {
-      signout.addEventListener("click", async () => {
-        if (!window.confirm("Sign out? Your meetings and tasks stay here for next time.")) return;
-        await post("/auth/signout");
-        window.location.href = "/";
+    const accountChip = $("#btn-account");
+    if (accountChip) {
+      accountChip.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleAccountMenu();
       });
     }
+    // Click-away and Escape both close it.
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest("#account")) toggleAccountMenu(false);
+    });
 
     const bell = $("#btn-bell");
     if (bell) bell.addEventListener("click", openDrawer);
@@ -1562,8 +1648,6 @@
     if (sync) sync.addEventListener("click", doSync);
     const exportBtn = $("#btn-export");
     if (exportBtn) exportBtn.addEventListener("click", exportIcs);
-    const connect = $("#btn-connect");
-    if (connect) connect.addEventListener("click", startAuth);
 
     const search = $("#global-search");
     if (search) {
@@ -1665,7 +1749,7 @@
     if (modalScrim) modalScrim.addEventListener("click", (e) => { if (e.target === modalScrim) closeModal(); });
 
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") { closeModal(); closeDrawer(); return; }
+      if (e.key === "Escape") { closeModal(); closeDrawer(); toggleAccountMenu(false); return; }
       const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement && document.activeElement.tagName);
       if (e.key === "/" && !typing) {
         e.preventDefault();

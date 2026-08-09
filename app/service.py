@@ -129,7 +129,10 @@ class MeetManagerService:
     def shutdown(self) -> None:
         if self._scheduler is not None:
             try:
-                self._scheduler.shutdown(wait=False)
+                # wait=True: a scan already running would otherwise reach a
+                # store we are about to close and raise "Cannot operate on a
+                # closed database" from a background thread.
+                self._scheduler.shutdown(wait=True)
             except Exception:  # noqa: BLE001
                 pass
             self._scheduler = None

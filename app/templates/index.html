@@ -53,6 +53,9 @@
     <g id="i-trash"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2"/><path d="M6.5 7 7.5 20a1.5 1.5 0 0 0 1.5 1.4h6a1.5 1.5 0 0 0 1.5-1.4L17.5 7"/></g>
     <g id="i-edit"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3Z"/><path d="m14.5 7.5 2 2"/></g>
     <g id="i-flag"><path d="M5 21V4M5 4h11l-2 3.5L16 11H5"/></g>
+    <g id="i-chev"><path d="m6 9.5 6 6 6-6"/></g>
+    <g id="i-logout"><path d="M9 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3"/><path d="M15.5 16.5 20 12l-4.5-4.5M20 12H9"/></g>
+    <g id="i-swap"><path d="M7 4 3 8l4 4"/><path d="M3 8h13a4 4 0 0 1 0 8h-2"/><path d="m17 20 4-4-4-4"/></g>
     <g id="i-google"><path d="M21 12.2c0-.7-.06-1.2-.18-1.8H12v3.3h5.1a4.4 4.4 0 0 1-1.9 2.9v2.4h3.06C20 17.4 21 15 21 12.2Z"/><path d="M12 21.5c2.6 0 4.7-.85 6.26-2.3l-3.06-2.4a5.7 5.7 0 0 1-3.2.9 5.6 5.6 0 0 1-5.26-3.85H3.6v2.42A9.5 9.5 0 0 0 12 21.5Z"/><path d="M6.74 13.85a5.7 5.7 0 0 1 0-3.66V7.77H3.6a9.5 9.5 0 0 0 0 8.5l3.14-2.42Z"/><path d="M12 6.35c1.48 0 2.8.51 3.84 1.5l2.87-2.87A9.13 9.13 0 0 0 12 2.5a9.5 9.5 0 0 0-8.4 5.27l3.14 2.42A5.6 5.6 0 0 1 12 6.35Z"/></g>
   </defs>
 </svg>
@@ -77,8 +80,6 @@
       <button class="rail-btn" id="btn-theme" type="button" data-tip="Theme" aria-label="Toggle theme">
         <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sun" id="theme-icon"/></svg>
       </button>
-      <button class="rail-user" id="btn-signout" type="button"
-              data-tip="Sign out of {{ owner_email }}" aria-label="Sign out">{{ user_name[:2]|upper }}</button>
       <div class="rail-status">
         <span class="rail-dot" aria-hidden="true"></span>
         <span class="micro micro-sm" id="rail-mode">LIVE</span>
@@ -111,10 +112,15 @@
         <button class="pill" id="btn-sync" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg><span>Sync</span>
         </button>
-        <button class="pill pill-red" id="btn-connect" type="button">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
-          <span id="btn-connect-label">Connect</span>
-        </button>
+        <div class="account" id="account">
+          <button class="pill account-chip" id="btn-account" type="button"
+                  aria-haspopup="true" aria-expanded="false">
+            <span class="account-avatar" id="account-avatar">{{ user_name[:2]|upper }}</span>
+            <span class="account-email" id="account-email">{{ owner_email }}</span>
+            <svg class="account-caret" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chev"/></svg>
+          </button>
+          <div class="account-menu is-hidden" id="account-menu" role="menu"></div>
+        </div>
       </div>
     </header>
 

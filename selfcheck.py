@@ -496,6 +496,82 @@ def main() -> int:
             root.shutdown()
         return "events, tasks, tokens, preferences and alerts all isolated"
 
+    @check("Mailbox switching cannot be forged")
+    def _():
+        # The switcher must only ever offer accounts that completed a sign-in
+        # in *this* browser session; otherwise knowing an id would be enough
+        # to read someone else's calendar.
+        import base64
+        import json as _json
+
+        from itsdangerous import TimestampSigner
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            settings.db_path = Path(tmp) / "switch.db"
+            # app.main holds a module-level service bound to whatever db_path
+            # was current at import. Reload it so each check gets its own,
+            # instead of inheriting one a previous check already shut down.
+            import importlib
+
+            import app.main as app_main
+            from fastapi.testclient import TestClient
+
+            app_main = importlib.reload(app_main)
+            app = app_main.app
+            app_service = app_main.service
+            _session_secret = app_main._session_secret
+
+            def cookie(session: dict) -> str:
+                blob = base64.b64encode(_json.dumps(session).encode())
+                return TimestampSigner(_session_secret()).sign(blob).decode()
+
+            def sign_in(client, session: dict) -> None:
+                # Clear first: httpx appends rather than replaces, and the
+                # server would then read whichever cookie came first.
+                client.cookies.clear()
+                client.cookies.set("mm_session", cookie(session))
+
+            with TestClient(app) as client:
+                mine = app_service.store.upsert_user(email="mine@example.com")
+                other = app_service.store.upsert_user(email="victim@example.com")
+                app_service.for_user(other["id"]).create_task({"title": "Victim's task"})
+
+                # Signed in only as `mine`.
+                sign_in(client, {"uid": mine["id"], "accounts": [mine["id"]]})
+
+                listed = client.get("/api/accounts").json()["accounts"]
+                assert [a["email"] for a in listed] == ["mine@example.com"], listed
+                assert listed[0]["active"] is True
+
+                # Switching to an account never authenticated here must fail...
+                res = client.post("/api/accounts/switch", json={"id": other["id"]})
+                assert res.status_code == 403, f"forged switch returned {res.status_code}"
+                # ...and must not have changed who we are.
+                assert client.get("/api/me").json()["user"]["email"] == "mine@example.com"
+                assert not any(t["title"] == "Victim's task" for t in client.get("/api/tasks").json()["tasks"])
+
+                # A genuine multi-account session can switch freely.
+                sign_in(client, {"uid": mine["id"], "accounts": [mine["id"], other["id"]]})
+                assert client.post("/api/accounts/switch", json={"id": other["id"]}).json()["ok"]
+                assert client.get("/api/me").json()["user"]["email"] == "victim@example.com"
+
+                # Forgetting the only remaining account signs the browser out.
+                sign_in(client, {"uid": mine["id"], "accounts": [mine["id"]]})
+                gone = client.post("/api/accounts/forget", json={"id": mine["id"]})
+                assert gone.json()["signed_out"], gone.json()
+                # The browser must be told to drop the cookie. (Asserted on the
+                # header rather than a follow-up request: a cookie set by hand
+                # on the test client carries no domain, so httpx's jar ignores
+                # the server's scoped deletion.)
+                assert "01 Jan 1970" in (gone.headers.get("set-cookie") or ""), (
+                    "sign-out did not clear the session cookie"
+                )
+                client.cookies.clear()
+                assert client.get("/api/state").status_code == 401
+                # ...but the data is kept for next time.
+                assert app_service.store.get_user(mine["id"]) is not None
+        return "forged switch refused, genuine switch allowed, forget signs out"
+
     @check("HTTP API responds")
     def _():
         import base64
@@ -505,9 +581,18 @@ def main() -> int:
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             settings.db_path = Path(tmp) / "api.db"
+            # app.main holds a module-level service bound to whatever db_path
+            # was current at import. Reload it so each check gets its own,
+            # instead of inheriting one a previous check already shut down.
+            import importlib
+
+            import app.main as app_main
             from fastapi.testclient import TestClient
-            from app.main import _session_secret, app
-            from app.main import service as app_service
+
+            app_main = importlib.reload(app_main)
+            app = app_main.app
+            app_service = app_main.service
+            _session_secret = app_main._session_secret
 
             def sign_in_as(client, email):
                 user = app_service.store.upsert_user(email=email)
