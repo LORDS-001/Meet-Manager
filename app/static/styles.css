@@ -648,7 +648,16 @@ input[type="date"].select, input[type="time"].select { min-width: 140px; }
 .card-sub { font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
 .card-body { padding: 0 18px 18px; min-width: 0; flex: 1; }
 
-.toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Grow into the space the card head leaves over, so the controls sit on one
+   line and only wrap when the header is genuinely too narrow for them. */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+}
 
 .chip {
   display: inline-flex;
@@ -1361,6 +1370,10 @@ button.row { cursor: pointer; }
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 14px;
 }
+
+/* The day picker needs a full row - squeezed into one grid column the seven
+   toggles wrap onto a second line. */
+.field-wide { grid-column: 1 / -1; }
 
 .daypicker { display: flex; gap: 5px; flex-wrap: wrap; }
 .day-toggle {
