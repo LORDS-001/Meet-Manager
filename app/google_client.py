@@ -144,37 +144,37 @@ class GoogleCalendarClient:
             state=state,
         )
 
-    def authorization_url(self) -> str:
+    def authorization_url(self, login_hint: str | None = None) -> tuple[str, dict[str, Any]]:
+        """Return (url, pending) where `pending` must be stashed by the caller.
+
+        It goes in the browser session rather than the store: sign-in happens
+        before we know which account is arriving, so there is no owner to scope
+        it to, and two people signing in at once would otherwise collide on a
+        single shared row.
+
+        `pending` carries the PKCE code_verifier. google-auth-oauthlib >= 1.1
+        generates one here and sends its challenge to Google; the callback
+        builds a *new* Flow, so without carrying it across the token exchange
+        fails with "Missing code verifier".
+        """
         flow = self._flow()
         url, state = flow.authorization_url(
             access_type="offline",
             include_granted_scopes="true",
             prompt="consent",
-            login_hint=self.settings.owner_email,
+            login_hint=login_hint or self.settings.owner_email,
         )
-        # PKCE: google-auth-oauthlib >= 1.1 generates a code_verifier here and
-        # sends its challenge to Google. The callback builds a *new* Flow, so
-        # the verifier has to be persisted or the token exchange fails with
-        # "Missing code verifier".
-        self.store.set(
-            OAUTH_STATE_KEY,
-            {"state": state, "code_verifier": getattr(flow, "code_verifier", None)},
-        )
-        return url
+        return url, {"state": state, "code_verifier": getattr(flow, "code_verifier", None)}
 
-    def _load_oauth_state(self) -> dict[str, Any]:
-        """Read the pending OAuth state, tolerating the old bare-string format."""
-        saved = self.store.get(OAUTH_STATE_KEY)
-        if isinstance(saved, str):
-            return {"state": saved, "code_verifier": None}
-        if isinstance(saved, dict):
-            return saved
-        return {}
-
-    def finish_auth(self, authorization_response: str, state: str | None) -> None:
-        saved = self._load_oauth_state()
-        expected = saved.get("state")
-        verifier = saved.get("code_verifier")
+    def finish_auth(
+        self,
+        authorization_response: str,
+        state: str | None,
+        pending: dict[str, Any] | None = None,
+    ) -> None:
+        pending = pending if isinstance(pending, dict) else {}
+        expected = pending.get("state")
+        verifier = pending.get("code_verifier")
 
         if expected and state and expected != state:
             raise GoogleAuthError("OAuth state mismatch - please start the sign-in again.")
@@ -197,13 +197,30 @@ class GoogleCalendarClient:
 
         creds = flow.credentials
         self._save_credentials(creds)
-        self.store.delete(OAUTH_STATE_KEY)
         self._refresh_profile(creds)
+
+    def adopt_credentials_from(self, other: "GoogleCalendarClient") -> None:
+        """Move a freshly minted token onto this (user-scoped) client.
+
+        Sign-in has to exchange the code before it knows whose account it is,
+        so the token lands in system scope first and is handed over here.
+        """
+        token = other.store.get(TOKEN_KEY)
+        profile = other.store.get(PROFILE_KEY)
+        if token:
+            self.store.set(TOKEN_KEY, token)
+        if profile:
+            self.store.set(PROFILE_KEY, profile)
+
+    def forget_credentials(self) -> None:
+        """Clear credentials without touching cached data. Used to wipe the
+        system-scope copy once a user has adopted it."""
+        self.store.delete(TOKEN_KEY)
+        self.store.delete(PROFILE_KEY)
 
     def disconnect(self) -> None:
         self.store.delete(TOKEN_KEY)
         self.store.delete(PROFILE_KEY)
-        self.store.delete(OAUTH_STATE_KEY)
         self.store.clear_events("google")
         self.store.clear_tasks("google_tasks")
 

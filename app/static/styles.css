@@ -1243,6 +1243,97 @@ input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1) opacit
   word-break: break-all;
 }
 
+/* =============================================================== sign-in */
+.signin-body { overflow: auto; }
+
+.signin {
+  display: grid;
+  place-items: center;
+  min-height: calc(100dvh - var(--gap) * 2);
+  padding: 24px 16px;
+}
+
+.signin-card {
+  width: min(460px, 100%);
+  padding: 40px 36px 30px;
+  background: var(--chassis);
+  border: 1px solid var(--line);
+  border-radius: var(--r-chassis);
+  box-shadow: var(--shadow);
+  text-align: center;
+  animation: riseIn var(--slow) var(--ease-out) both;
+}
+
+.signin-mark {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 22px;
+  border: 1px solid var(--red-line);
+  border-radius: var(--r-lg);
+  background: var(--red-soft);
+  color: var(--red);
+}
+.signin-mark svg { width: 24px; height: 24px; }
+
+.signin-title {
+  margin-top: 10px;
+  font-size: 34px;
+  font-weight: 650;
+  letter-spacing: -.045em;
+  line-height: 1.05;
+}
+.signin-sub {
+  margin: 12px auto 0;
+  max-width: 40ch;
+  font-size: 13px;
+  color: var(--ink-3);
+  line-height: 1.6;
+}
+
+.signin-error { margin-top: 22px; text-align: left; }
+
+.signin-cta { width: 100%; margin-top: 26px; height: 46px; }
+
+.signin-points {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+}
+.signin-points li {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  line-height: 1.45;
+}
+.signin-points svg { width: 14px; height: 14px; color: var(--red-text); margin-top: 2px; flex: none; }
+
+.signin-foot { margin-top: 24px; color: var(--ink-5); white-space: normal; line-height: 1.6; }
+
+/* Signed-in identity in the rail foot. */
+.rail-user {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--panel-2);
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.rail-user:hover { border-color: var(--red-line); color: var(--red-text); }
+
 /* ============================================================== overlays */
 .scrim {
   position: fixed;
@@ -1409,9 +1500,14 @@ input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1) opacit
     padding: 6px 8px;
   }
   .rail-logo, .rail-sep, .rail-status { display: none; }
-  .rail-nav { flex-direction: row; gap: 2px; flex: 1 1 auto; }
-  .rail-foot { flex-direction: row; padding: 0; }
-  .rail-btn { width: 42px; height: 42px; }
+  .rail-nav { flex-direction: row; gap: 2px; flex: 0 0 auto; }
+  .rail-foot { flex-direction: row; gap: 4px; padding: 0; }
+  /* Nine controls have to share a phone's width. Shrink them, and let the bar
+     scroll rather than push the last one off-screen. */
+  .rail-btn { width: 38px; height: 38px; }
+  .rail-user { width: 32px; height: 32px; font-size: 9px; }
+  .rail { overflow-x: auto; scrollbar-width: none; }
+  .rail::-webkit-scrollbar { height: 0; }
   .rail-btn.is-active::before, .rail-btn.is-active::after { display: none; }
   [data-tip]::after { display: none; }
   /* On a phone the action cluster claims a full row (so it is bounded by the

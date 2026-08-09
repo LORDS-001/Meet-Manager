@@ -161,6 +161,31 @@ meetmanager/
         └── app.js
 ```
 
+## Accounts
+
+MeetManager is multi-tenant. Signing in **is** connecting Google: the OAuth
+callback creates the account, and from then on every row the app stores carries
+an `owner_id`.
+
+Isolation is enforced in one place. A `Store` is *bound* to an owner —
+`store.for_owner(id)` returns a view sharing the connection whose every query
+is scoped — and `MeetManagerService.for_user(id)` wraps one. In the API layer
+there is no path to data that does not go through `_service_for(request)`, so a
+route cannot read another account's rows by forgetting a filter. A self-check
+asserts that one account cannot read, edit or delete another's events, tasks,
+tokens, preferences or alerts.
+
+Unauthenticated visitors get the sign-in page and a `401` from every data
+route — CI asserts both before it authenticates, so a broken auth gate fails
+the build.
+
+Deleting an account removes everything it owns and nothing else.
+
+**Upgrading an existing install**: the store migrates itself on first boot. It
+adds `owner_id` columns, rebuilds `kv` with a composite key, and adopts any
+pre-existing rows into an account matching the Google profile already stored,
+so nothing is lost. The migration is idempotent.
+
 ## Task sources
 
 Tasks come from two kinds of place:
@@ -222,6 +247,36 @@ container needs care: the redirect URI comes from `HOST`/`PORT`, and `HOST` is
 `0.0.0.0` inside the container, so set both to the address the app will
 actually be reached at and register that exact callback in Google Cloud
 Console.
+
+### Deploying to Render
+
+`render.yaml` is a Blueprint: **New → Blueprint → pick this repo**, then fill
+in the variables Render prompts for.
+
+| Variable | Why |
+|---|---|
+| `PUBLIC_URL` | e.g. `https://meetmanager.onrender.com`. Without it the OAuth redirect is built from `HOST`/`PORT` and comes out as `http://0.0.0.0:10000/auth/callback`, which Google rejects. |
+| `SECRET_KEY` | Signs session cookies. Unset means one is generated per boot, so every restart signs everyone out. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Your OAuth client. |
+
+After the first deploy, add `<PUBLIC_URL>/auth/callback` to the authorised
+redirect URIs on the Google OAuth client, then redeploy.
+
+**Letting other people sign in.** While the OAuth consent screen is in
+*Testing*, only accounts you list as test users can get in, and their refresh
+tokens expire after 7 days. Switch **Publishing status → In production** to
+lift both. It stays unverified, so users see a "Google hasn't verified this
+app" interstitial and there is a **100-user cap** for sensitive scopes;
+removing the warning and the cap needs Google's verification review, which
+wants a privacy policy, a homepage and a demo video.
+
+**What the free plan costs you.** Free instances have no persistent disk and
+reset their filesystem whenever the service restarts — including waking from
+the 15-minute idle sleep. Everything here lives in SQLite, so on that plan
+expect users to be signed out and to have to reconnect Google after a restart,
+locally-created tasks to be lost, and reminders not to fire while asleep. Fine
+for a demo. For real use, switch to `plan: starter`, uncomment the `disk:`
+block in `render.yaml`, and set `SECRET_KEY`.
 
 ### Running the checks locally
 

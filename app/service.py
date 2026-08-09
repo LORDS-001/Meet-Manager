@@ -63,9 +63,18 @@ def _parse_hhmm(raw: str | None, fallback: time) -> time:
 
 
 class MeetManagerService:
-    def __init__(self, settings: Settings) -> None:
+    """Application service.
+
+    An instance is bound to whatever owner its store is scoped to. The one
+    built at startup is unbound (system scope) and is used for the scheduler
+    and for user lookup; `for_user()` returns a per-request instance whose
+    store - and therefore whose Google token, events, tasks, notifications and
+    preferences - belongs to that one account.
+    """
+
+    def __init__(self, settings: Settings, store: Store | None = None) -> None:
         self.settings = settings
-        self.store = Store(settings.db_path)
+        self.store = store if store is not None else Store(settings.db_path)
         self.google = GoogleCalendarClient(settings, self.store)
         self._sync_lock = threading.Lock()
         self._task_sync_lock = threading.Lock()
@@ -75,9 +84,15 @@ class MeetManagerService:
         # the app picks it up with no further changes.
         self.task_providers = [GoogleTasksProvider(self.google)]
 
-        prefs = self.store.get(PREFS_KEY)
-        if not isinstance(prefs, dict):
-            self.store.set(PREFS_KEY, dict(DEFAULT_PREFS))
+        if self.store.owner_id:
+            prefs = self.store.get(PREFS_KEY)
+            if not isinstance(prefs, dict):
+                self.store.set(PREFS_KEY, dict(DEFAULT_PREFS))
+
+    def for_user(self, user_id: str) -> "MeetManagerService":
+        """A service bound to one account. Cheap: the store view shares the
+        underlying connection."""
+        return MeetManagerService(self.settings, store=self.store.for_owner(user_id))
 
     # ------------------------------------------------------------ lifecycle
     def start(self) -> None:
@@ -411,11 +426,17 @@ class MeetManagerService:
             self._task_sync_lock.release()
 
     def _safe_task_sync(self) -> None:
-        try:
-            if any(p.is_connected() for p in self.task_providers):
-                self.sync_tasks()
-        except Exception:  # noqa: BLE001
-            log.exception("Background task sync raised")
+        if self.store.owner_id:
+            try:
+                if any(p.is_connected() for p in self.task_providers):
+                    self.sync_tasks()
+            except Exception:  # noqa: BLE001
+                log.exception("Background task sync raised")
+            return
+        self._each_user(
+            "Background task sync",
+            lambda svc: svc.sync_tasks() if any(p.is_connected() for p in svc.task_providers) else None,
+        )
 
     # ------------------------------------------------------------------ sync
     def sync(self) -> dict[str, Any]:
@@ -466,11 +487,17 @@ class MeetManagerService:
         self.store.set(SYNC_STATE_KEY, state)
 
     def _safe_background_sync(self) -> None:
-        try:
-            if self.google.is_connected():
-                self.sync()
-        except Exception:  # noqa: BLE001
-            log.exception("Background sync raised")
+        if self.store.owner_id:
+            try:
+                if self.google.is_connected():
+                    self.sync()
+            except Exception:  # noqa: BLE001
+                log.exception("Background sync raised")
+            return
+        self._each_user(
+            "Background sync",
+            lambda svc: svc.sync() if svc.google.is_connected() else None,
+        )
 
     # ------------------------------------------------------------ demo mode
     def load_demo(self) -> dict[str, Any]:
@@ -494,11 +521,23 @@ class MeetManagerService:
         return {"ok": True, "message": "Cleared all tracked events.", "count": 0}
 
     # ------------------------------------------------------------ reminders
+    # The scheduler runs on the unbound service, so every job fans out across
+    # accounts. One user's failure must never stop the others being scanned.
+    def _each_user(self, what: str, action) -> None:
+        for user in self.store.all_users():
+            try:
+                action(self.for_user(user["id"]))
+            except Exception:  # noqa: BLE001
+                log.exception("%s failed for user %s", what, user["id"])
+
     def _safe_reminder_scan(self) -> None:
-        try:
-            self.scan_reminders()
-        except Exception:  # noqa: BLE001
-            log.exception("Reminder scan raised")
+        if self.store.owner_id:
+            try:
+                self.scan_reminders()
+            except Exception:  # noqa: BLE001
+                log.exception("Reminder scan raised")
+            return
+        self._each_user("Reminder scan", lambda svc: svc.scan_reminders())
 
     def scan_reminders(self) -> int:
         """Create reminder notifications for meetings inside the lead window."""

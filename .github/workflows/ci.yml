@@ -109,6 +109,8 @@ jobs:
           HOST: 127.0.0.1
           PORT: "8000"
           MM_BASE_URL: http://127.0.0.1:8000/
+          # Fixed so the cookie minted below verifies against the running app.
+          SECRET_KEY: ci-only-session-secret-not-used-anywhere-else
         run: |
           set -euo pipefail
           python run.py --no-browser &
@@ -121,9 +123,20 @@ jobs:
           done
           curl -sf http://127.0.0.1:8000/healthz
 
+          # Anonymous visitors must never see data - assert that before
+          # authenticating, so a broken auth gate fails the build.
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/state)" = "401"
+          curl -s http://127.0.0.1:8000/ | grep -q "Continue with Google"
+
+          # Every data route is behind a session; the suites cannot do a real
+          # OAuth round trip, so mint a cookie for a throwaway account.
+          MM_SESSION_COOKIE="$(python tests/ui/mint_session.py)"
+          export MM_SESSION_COOKIE
+
           # Deterministic fixture: the generated calendar always contains
           # known clashes, so the audit has something real to render.
-          curl -sf -X POST http://127.0.0.1:8000/api/demo/load
+          curl -sf -X POST --cookie "mm_session=$MM_SESSION_COOKIE" \
+            http://127.0.0.1:8000/api/demo/load
 
           node tests/ui/audit.mjs
           node tests/ui/functional.mjs

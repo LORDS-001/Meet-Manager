@@ -21,8 +21,20 @@ fs.mkdirSync(OUT, { recursive: true });
 const problems = [];
 const browser = await chromium.launch();
 
+// Every data route is behind a session. MM_SESSION_COOKIE is minted by
+// tests/ui/mint_session.py; without it the app correctly shows sign-in only.
+const SESSION = process.env.MM_SESSION_COOKIE || "";
+if (!SESSION) {
+  console.error("MM_SESSION_COOKIE is not set - run tests/ui/mint_session.py first.");
+  process.exit(2);
+}
+const { hostname } = new URL(BASE);
+
 async function audit(label, viewport, theme) {
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: 1 });
+  await ctx.addCookies([
+    { name: "mm_session", value: SESSION, domain: hostname, path: "/", httpOnly: true, sameSite: "Lax" },
+  ]);
   const page = await ctx.newPage();
 
   page.on("console", (m) => {

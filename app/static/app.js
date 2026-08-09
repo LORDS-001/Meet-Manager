@@ -97,6 +97,12 @@
     try {
       const res = await fetch(path, opts);
       const data = await res.json().catch(() => null);
+      // The session expired or was cleared - bounce to the sign-in page rather
+      // than leaving the UI showing stale data it can no longer refresh.
+      if (res.status === 401 && data && data.auth_required) {
+        window.location.href = "/";
+        return { ok: false, message: "Signing in…" };
+      }
       if (!data || typeof data !== "object") {
         return { ok: false, message: "The server sent a response we could not read." };
       }
@@ -1538,6 +1544,15 @@
     if (theme) {
       theme.addEventListener("click", () => {
         applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark", true);
+      });
+    }
+
+    const signout = $("#btn-signout");
+    if (signout) {
+      signout.addEventListener("click", async () => {
+        if (!window.confirm("Sign out? Your meetings and tasks stay here for next time.")) return;
+        await post("/auth/signout");
+        window.location.href = "/";
       });
     }
 

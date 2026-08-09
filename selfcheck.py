@@ -413,40 +413,122 @@ def main() -> int:
             settings.google_client_secret = "test-secret"
             try:
                 service = MeetManagerService(settings)
-                url = service.google.authorization_url()
+                url, pending = service.google.authorization_url()
 
                 query = parse_qs(urlparse(url).query)
                 assert "code_challenge" in query, "no PKCE challenge was sent"
 
-                saved = service.store.get(OAUTH_STATE_KEY)
-                assert isinstance(saved, dict), f"state must be stored as a dict, got {type(saved).__name__}"
-                assert saved.get("state"), "the OAuth state was not persisted"
-                verifier = saved.get("code_verifier")
-                assert verifier, "the PKCE code_verifier was not persisted"
+                assert isinstance(pending, dict), f"expected a dict, got {type(pending).__name__}"
+                assert pending.get("state"), "the OAuth state was not returned for the session"
+                verifier = pending.get("code_verifier")
+                assert verifier, "the PKCE code_verifier was not returned for the session"
 
                 # The callback must rebuild a flow carrying that same verifier.
-                flow = service.google._flow(state=saved["state"])
+                flow = service.google._flow(state=pending["state"])
                 flow.code_verifier = verifier
                 assert flow.code_verifier == verifier
 
-                # An older bare-string state must not crash the callback path.
-                service.store.set(OAUTH_STATE_KEY, "legacy-state-string")
-                legacy = service.google._load_oauth_state()
-                assert legacy["state"] == "legacy-state-string" and legacy["code_verifier"] is None
+                # It must NOT be written to the store: sign-in happens before
+                # we know the account, and a shared row would let two people
+                # signing in at once clobber each other.
+                assert service.store.get(OAUTH_STATE_KEY) is None, (
+                    "the OAuth state leaked into the store instead of the session"
+                )
+
+                # A missing/garbled session must fail cleanly, not explode.
+                try:
+                    service.google.finish_auth("http://x/?code=abc&state=zzz", "zzz", None)
+                except Exception as exc:  # noqa: BLE001
+                    assert "GoogleAuthError" in type(exc).__name__ or "Could not" in str(exc), exc
                 service.shutdown()
             finally:
                 settings.google_client_id, settings.google_client_secret = original
         return "challenge sent, verifier persisted and restored"
 
+    @check("Accounts are isolated from each other")
+    def _():
+        # The whole point of multi-tenancy: one account must never be able to
+        # see, edit or delete another's rows.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            settings.db_path = Path(tmp) / "tenants.db"
+            root = MeetManagerService(settings)
+
+            alice = root.store.upsert_user(email="alice@example.com")
+            bob = root.store.upsert_user(email="bob@example.com")
+            assert alice["id"] != bob["id"]
+            assert root.store.upsert_user(email="ALICE@example.com")["id"] == alice["id"], (
+                "e-mail matching must be case-insensitive, or a user gets a second account"
+            )
+
+            a = root.for_user(alice["id"])
+            b = root.for_user(bob["id"])
+
+            a.load_demo()
+            a_task = a.create_task({"title": "Alice's private task"})["task"]
+            b_task = b.create_task({"title": "Bob's private task"})["task"]
+
+            # Data
+            assert a.store.event_count() > 0 and b.store.event_count() == 0, "events leaked between accounts"
+            assert [t.title for t in b.tasks()] == ["Bob's private task"], [t.title for t in b.tasks()]
+            assert b.store.get_task(a_task["id"]) is None, "Bob can read Alice's task"
+
+            # Writes
+            assert not b.update_task(a_task["id"], {"title": "hijacked"})["ok"], "Bob edited Alice's task"
+            assert not b.delete_task(a_task["id"])["ok"], "Bob deleted Alice's task"
+            assert a.store.get_task(a_task["id"]).title == "Alice's private task"
+
+            # Credentials and preferences
+            a.store.set("google_token", {"token": "alice-secret"})
+            assert b.store.get("google_token") is None, "Bob can read Alice's Google token"
+            a.update_prefs({"buffer_minutes": 45})
+            assert b.prefs()["buffer_minutes"] != 45, "preferences leaked between accounts"
+
+            # Notifications
+            a.scan_reminders()
+            assert len(a.notifications()) > 0
+            assert len(b.notifications()) == 0, "notifications leaked between accounts"
+
+            # Deleting an account takes its data with it and leaves Bob alone.
+            root.store.delete_user(alice["id"])
+            assert root.store.get_user(alice["id"]) is None
+            assert root.for_user(alice["id"]).store.event_count() == 0
+            assert b.store.get_task(b_task["id"]) is not None, "deleting Alice removed Bob's data"
+            root.shutdown()
+        return "events, tasks, tokens, preferences and alerts all isolated"
+
     @check("HTTP API responds")
     def _():
+        import base64
+        import json as _json
+
+        from itsdangerous import TimestampSigner
+
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             settings.db_path = Path(tmp) / "api.db"
             from fastapi.testclient import TestClient
-            from app.main import app
+            from app.main import _session_secret, app
+            from app.main import service as app_service
+
+            def sign_in_as(client, email):
+                user = app_service.store.upsert_user(email=email)
+                payload = base64.b64encode(_json.dumps({"uid": user["id"]}).encode())
+                client.cookies.set("mm_session", TimestampSigner(_session_secret()).sign(payload).decode())
+                return user
 
             with TestClient(app) as client:
                 assert client.get("/healthz").json()["ok"]
+
+                # Unauthenticated: the app must not hand over any data.
+                for path in ("/api/state", "/api/tasks", "/api/notifications", "/api/preferences"):
+                    assert client.get(path).status_code == 401, f"{path} served data without a session"
+                assert client.post("/api/sync").status_code == 401
+                page = client.get("/")
+                assert page.status_code == 200 and "Continue with Google" in page.text, (
+                    "an anonymous visitor must get the sign-in page, not the dashboard"
+                )
+
+                sign_in_as(client, "api@example.com")
+                assert client.get("/api/me").json()["user"]["email"] == "api@example.com"
                 assert client.post("/api/demo/load").json()["ok"]
                 state = client.get("/api/state").json()
                 assert state["ok"], state

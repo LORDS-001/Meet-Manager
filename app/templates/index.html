@@ -77,6 +77,8 @@
       <button class="rail-btn" id="btn-theme" type="button" data-tip="Theme" aria-label="Toggle theme">
         <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sun" id="theme-icon"/></svg>
       </button>
+      <button class="rail-user" id="btn-signout" type="button"
+              data-tip="Sign out of {{ owner_email }}" aria-label="Sign out">{{ user_name[:2]|upper }}</button>
       <div class="rail-status">
         <span class="rail-dot" aria-hidden="true"></span>
         <span class="micro micro-sm" id="rail-mode">LIVE</span>

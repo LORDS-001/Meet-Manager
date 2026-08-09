@@ -76,6 +76,10 @@ class Settings:
     # 0.0.0.0 on an arbitrary port, so a redirect URI derived from HOST/PORT
     # would be "http://0.0.0.0:10000/..." - which Google rejects.
     public_url: str = field(default_factory=lambda: _env("PUBLIC_URL").rstrip("/"))
+    # Signs the session cookie. Unset is fine locally - one is generated and
+    # persisted - but set it in production so a restart does not sign everyone
+    # out, and so replicas agree.
+    secret_key: str = field(default_factory=lambda: _env("SECRET_KEY"))
     timezone: str = field(default_factory=lambda: _safe_timezone(_env("TIMEZONE", "Africa/Lagos")))
 
     google_client_id: str = field(default_factory=lambda: _env("GOOGLE_CLIENT_ID"))

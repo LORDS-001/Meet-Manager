@@ -17,8 +17,24 @@ const results = [];
 const ok = (n, d = "") => results.push(["PASS", n, d]);
 const bad = (n, d = "") => results.push(["FAIL", n, d]);
 
+const SESSION = process.env.MM_SESSION_COOKIE || "";
+if (!SESSION) {
+  console.error("MM_SESSION_COOKIE is not set - run tests/ui/mint_session.py first.");
+  process.exit(2);
+}
+
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+await ctx.addCookies([
+  {
+    name: "mm_session",
+    value: SESSION,
+    domain: new URL(BASE).hostname,
+    path: "/",
+    httpOnly: true,
+    sameSite: "Lax",
+  },
+]);
 const page = await ctx.newPage();
 
 const errors = [];

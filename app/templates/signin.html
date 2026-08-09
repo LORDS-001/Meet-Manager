@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>MeetManager &middot; Sign in</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23070707'/><rect x='8' y='9' width='16' height='15' rx='3' fill='none' stroke='%23e11d24' stroke-width='2'/><path d='M8 14h16M12 6v5M20 6v5' stroke='%23e11d24' stroke-width='2' stroke-linecap='round'/></svg>" />
+  <script>
+    try {
+      var t = localStorage.getItem('mm-theme');
+      if (t === 'light') document.documentElement.dataset.theme = 'light';
+    } catch (e) { /* private mode */ }
+  </script>
+</head>
+<body class="signin-body">
+
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <defs>
+    <g id="i-calendar"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></g>
+    <g id="i-check"><path d="m5 12.5 4.5 4.5L19 7.5"/></g>
+    <g id="i-alert"><path d="M12 4.5 2.8 20h18.4L12 4.5Z"/><path d="M12 10v4M12 17h.01"/></g>
+    <g id="i-google"><path d="M21 12.2c0-.7-.06-1.2-.18-1.8H12v3.3h5.1a4.4 4.4 0 0 1-1.9 2.9v2.4h3.06C20 17.4 21 15 21 12.2Z"/><path d="M12 21.5c2.6 0 4.7-.85 6.26-2.3l-3.06-2.4a5.7 5.7 0 0 1-3.2.9 5.6 5.6 0 0 1-5.26-3.85H3.6v2.42A9.5 9.5 0 0 0 12 21.5Z"/><path d="M6.74 13.85a5.7 5.7 0 0 1 0-3.66V7.77H3.6a9.5 9.5 0 0 0 0 8.5l3.14-2.42Z"/><path d="M12 6.35c1.48 0 2.8.51 3.84 1.5l2.87-2.87A9.13 9.13 0 0 0 12 2.5a9.5 9.5 0 0 0-8.4 5.27l3.14 2.42A5.6 5.6 0 0 1 12 6.35Z"/></g>
+  </defs>
+</svg>
+
+<main class="signin">
+  <div class="signin-card">
+    <span class="signin-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><use href="#i-calendar"/></svg>
+    </span>
+
+    <span class="micro">MM / ACCESS</span>
+    <h1 class="signin-title">MeetManager</h1>
+    <p class="signin-sub">
+      Your meetings and tasks in one place. Clash detection, deadline reminders
+      and scored free slots &mdash; read from the calendar you already use.
+    </p>
+
+    {% if error %}
+      <div class="banner is-danger signin-error">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-alert"/></svg>
+        <div>
+          <span class="micro micro-bright">Sign-in failed</span>
+          <p>{{ error }}</p>
+        </div>
+      </div>
+    {% endif %}
+
+    <a class="pill pill-red signin-cta" href="/auth/login">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-google"/></svg>
+      <span>Continue with Google</span>
+    </a>
+
+    <ul class="signin-points">
+      <li><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg><span>Your calendar and tasks are private to your account</span></li>
+      <li><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg><span>Read-only access &mdash; MeetManager never edits your calendar</span></li>
+      <li><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg><span>Disconnect at any time from Settings</span></li>
+    </ul>
+
+    <p class="signin-foot micro">v{{ version }} &middot; you will be asked to grant read access to Calendar and Tasks</p>
+  </div>
+</main>
+
+</body>
+</html>

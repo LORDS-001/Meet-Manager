@@ -23,19 +23,28 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     region: frankfurt          # nearest to Africa/Lagos; change if you prefer
-    plan: starter              # NOT free: the free plan has no persistent disk
-                               # and sleeps after 15 minutes idle, which stops
-                               # the reminder scheduler.
+    plan: free
     healthCheckPath: /healthz
     autoDeploy: true
 
-    # SQLite lives on disk. Without this, every deploy and every restart wipes
-    # the database - including the OAuth token, so you would reconnect Google
-    # after each push.
-    disk:
-      name: meetmanager-data
-      mountPath: /app/data
-      sizeGB: 1
+    # NOTE ON THE FREE PLAN
+    # ---------------------
+    # Free instances cannot mount a persistent disk, and their filesystem is
+    # reset whenever the service restarts - which includes spinning back up
+    # after 15 minutes of inactivity. Everything here lives in SQLite under
+    # /app/data, so on this plan expect:
+    #   * every user is signed out and must reconnect Google after a restart;
+    #   * cached events and locally-created tasks are lost (Google-sourced
+    #     data returns on the next sync, local tasks do not);
+    #   * reminders do not fire while the service is asleep.
+    # Fine for demonstrating the app. To run it for real, either switch to
+    # `plan: starter` and add the disk block below, or point the store at a
+    # managed Postgres.
+    #
+    # disk:
+    #   name: meetmanager-data
+    #   mountPath: /app/data
+    #   sizeGB: 1
 
     envVars:
       # The public address of this service, e.g. https://meetmanager.onrender.com
