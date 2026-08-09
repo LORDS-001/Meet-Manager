@@ -2,10 +2,35 @@
 
 A meeting manager for **adedokundaniel16@gmail.com**, written entirely in Python.
 
-- **Backend** — FastAPI + SQLite + APScheduler
-- **Frontend** — served and rendered by Python (Jinja2 templates); all layout maths
-  (timeline lanes, conflict clusters, slot scores) is computed in Python and sent
-  to the browser as JSON
+- **Backend** — FastAPI + SQLite + APScheduler. All the real work (timeline lane
+  packing, conflict clustering, slot scoring) happens here and is sent to the
+  browser as JSON.
+- **Frontend** — a single-page app in vanilla JavaScript and CSS, served from the
+  Jinja2 shell. No build step, no npm, no framework: `python run.py` is the whole
+  toolchain.
+
+## Interface
+
+A monochrome dashboard where black is the primary colour and inverts to white in
+dark mode, so buttons and active states keep the same weight in both themes.
+Colour is reserved for meaning — red for a clash, amber for a warning, green for a
+good slot.
+
+Six views, reachable from the icon rail or the top tabs:
+
+| View | What it shows |
+|---|---|
+| **Dashboard** | Live stat cards, notifications, what's up next, a month calendar, today's schedule with progress bars, load rings and a next-meeting countdown |
+| **Meetings** | Every tracked meeting, grouped by day, with search and filters |
+| **Timeline** | A day view with events laid out into lanes, a now-line and clash outlines |
+| **Conflicts** | Double bookings grouped by cluster, plus back-to-back crunches |
+| **Find a slot** | Scored free slots with the reasoning behind each score |
+| **Settings** | Reminders, working hours, buffer, timezone and calendar source |
+
+Motion is deliberately restrained — staggered fade-ups, a ring draw, bar growth,
+a small hover lift — and is switched off entirely under `prefers-reduced-motion`.
+The layout is responsive down to phone width, where the rail becomes a bottom bar.
+Press `/` to jump to search, `Esc` to close anything.
 
 ## What it does
 
