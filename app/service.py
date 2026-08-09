@@ -473,48 +473,13 @@ class MeetManagerService:
             log.exception("Background sync raised")
 
     # ------------------------------------------------------------ demo mode
-    def _seed_sample_tasks(self) -> int:
-        """Give a first-time user something to look at on the Tasks view.
-
-        Only ever runs when there are no tasks at all, and the rows are normal
-        editable local tasks - so this can never overwrite real work.
-        """
-        if self.store.task_count() > 0:
-            return 0
-
-        now = datetime.now(timezone.utc)
-        samples = [
-            ("Send the Q3 board pack", "Numbers are final; needs the commentary section.", -26, "high", "todo"),
-            ("Reply to the Northwind proposal", "They asked for revised pricing on the retainer.", 3, "urgent", "doing"),
-            ("Book the team offsite venue", "Shortlist of three, needs a deposit to hold the date.", 52, "normal", "todo"),
-            ("Review the onboarding flow copy", "Design handed it over on Tuesday.", 120, "normal", "todo"),
-            ("Renew the SSL certificate", None, None, "low", "todo"),
-            ("Write up the retrospective notes", "Circulated already.", -70, "normal", "done"),
-        ]
-
-        created = 0
-        for title, notes, hours, priority, status in samples:
-            task = Task(
-                id=new_task_id(),
-                title=title,
-                notes=notes or "",
-                due=(now + timedelta(hours=hours)) if hours is not None else None,
-                status=status,
-                priority=priority,
-                source="local",
-                source_name="Local",
-                completed_utc=now if status == "done" else None,
-            )
-            self.store.upsert_task(task)
-            created += 1
-        return created
-
     def load_demo(self) -> dict[str, Any]:
+        """Load the sample calendar. Deliberately does not touch tasks - the
+        button says "sample calendar", so it should not invent task rows."""
         events = demo_data.generate(self.settings.owner_email, self.tz)
         self.store.clear_events("google")
         self.store.replace_events(events, "demo")
         self.store.clear_notifications()
-        self._seed_sample_tasks()
         self.store.set(
             SYNC_STATE_KEY,
             {"last_sync": datetime.now(timezone.utc).isoformat(), "last_error": None, "count": len(events)},
