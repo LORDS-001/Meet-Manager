@@ -340,6 +340,48 @@ def main() -> int:
             service.shutdown()
         return "4 tasks: 3 open, 1 done, 1 overdue, 25% complete"
 
+    @check("OAuth PKCE verifier survives the redirect")
+    def _():
+        # Regression guard: authorization_url() and finish_auth() build two
+        # different Flow objects. google-auth-oauthlib >= 1.1 auto-generates a
+        # PKCE code_verifier on the first one, so it must be persisted or the
+        # token exchange dies with "Missing code verifier".
+        from urllib.parse import parse_qs, urlparse
+
+        from app.google_client import OAUTH_STATE_KEY
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            settings.db_path = Path(tmp) / "oauth.db"
+            original = (settings.google_client_id, settings.google_client_secret)
+            settings.google_client_id = "test-client-id.apps.googleusercontent.com"
+            settings.google_client_secret = "test-secret"
+            try:
+                service = MeetManagerService(settings)
+                url = service.google.authorization_url()
+
+                query = parse_qs(urlparse(url).query)
+                assert "code_challenge" in query, "no PKCE challenge was sent"
+
+                saved = service.store.get(OAUTH_STATE_KEY)
+                assert isinstance(saved, dict), f"state must be stored as a dict, got {type(saved).__name__}"
+                assert saved.get("state"), "the OAuth state was not persisted"
+                verifier = saved.get("code_verifier")
+                assert verifier, "the PKCE code_verifier was not persisted"
+
+                # The callback must rebuild a flow carrying that same verifier.
+                flow = service.google._flow(state=saved["state"])
+                flow.code_verifier = verifier
+                assert flow.code_verifier == verifier
+
+                # An older bare-string state must not crash the callback path.
+                service.store.set(OAUTH_STATE_KEY, "legacy-state-string")
+                legacy = service.google._load_oauth_state()
+                assert legacy["state"] == "legacy-state-string" and legacy["code_verifier"] is None
+                service.shutdown()
+            finally:
+                settings.google_client_id, settings.google_client_secret = original
+        return "challenge sent, verifier persisted and restored"
+
     @check("HTTP API responds")
     def _():
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:

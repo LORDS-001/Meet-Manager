@@ -152,19 +152,48 @@ class GoogleCalendarClient:
             prompt="consent",
             login_hint=self.settings.owner_email,
         )
-        self.store.set(OAUTH_STATE_KEY, state)
+        # PKCE: google-auth-oauthlib >= 1.1 generates a code_verifier here and
+        # sends its challenge to Google. The callback builds a *new* Flow, so
+        # the verifier has to be persisted or the token exchange fails with
+        # "Missing code verifier".
+        self.store.set(
+            OAUTH_STATE_KEY,
+            {"state": state, "code_verifier": getattr(flow, "code_verifier", None)},
+        )
         return url
 
+    def _load_oauth_state(self) -> dict[str, Any]:
+        """Read the pending OAuth state, tolerating the old bare-string format."""
+        saved = self.store.get(OAUTH_STATE_KEY)
+        if isinstance(saved, str):
+            return {"state": saved, "code_verifier": None}
+        if isinstance(saved, dict):
+            return saved
+        return {}
+
     def finish_auth(self, authorization_response: str, state: str | None) -> None:
-        expected = self.store.get(OAUTH_STATE_KEY)
+        saved = self._load_oauth_state()
+        expected = saved.get("state")
+        verifier = saved.get("code_verifier")
+
         if expected and state and expected != state:
             raise GoogleAuthError("OAuth state mismatch - please start the sign-in again.")
 
         flow = self._flow(state=expected or state)
+        if verifier:
+            flow.code_verifier = verifier
+
         try:
             flow.fetch_token(authorization_response=authorization_response)
         except Exception as exc:  # oauthlib raises many different types
-            raise GoogleAuthError(f"Could not complete Google sign-in: {exc}") from exc
+            message = str(exc)
+            if "code verifier" in message.lower():
+                message = (
+                    "The sign-in could not be completed because the security "
+                    "code from the first step was lost. Please click Connect "
+                    "and try again."
+                )
+            raise GoogleAuthError(f"Could not complete Google sign-in: {message}") from exc
 
         creds = flow.credentials
         self._save_credentials(creds)
