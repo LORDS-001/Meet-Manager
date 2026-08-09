@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+venv
+data
+node_modules
+tests
+**/__pycache__
+**/*.pyc
+.env
+credentials.json
+token.json
+*.md
+.dockerignore
+Dockerfile
+start.bat

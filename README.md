@@ -1,5 +1,7 @@
 # MeetManager
 
+[![CI](https://github.com/LORDS-001/Meet-Manager/actions/workflows/ci.yml/badge.svg)](https://github.com/LORDS-001/Meet-Manager/actions/workflows/ci.yml)
+
 A meeting manager for **adedokundaniel16@gmail.com**, written entirely in Python.
 
 - **Backend** — FastAPI + SQLite + APScheduler. All the real work (timeline lane
@@ -156,6 +158,71 @@ meetmanager/
         ├── styles.css
         └── app.js
 ```
+
+## CI/CD
+
+Two GitHub Actions workflows.
+
+**`ci.yml`** runs on every push to `main`, every pull request, and on demand:
+
+| Job | What it does |
+|---|---|
+| **Backend** | Installs on Python 3.11, 3.12 and 3.13, byte-compiles every module, then runs the 11-check `selfcheck.py` suite (conflict detection, timeline lane packing, slot scoring, store round-trip, reminder de-duplication, the HTTP API). |
+| **Front-end** | `node --check` on `app.js`, plus `check-assets.mjs` — a static pass for dangling icon references, `$("#id")` calls with no matching element, unbalanced CSS braces and undefined `var(--token)`s. These break the page silently, without ever raising a console error. |
+| **Browser** | Boots the app, seeds the sample calendar, then drives Chromium through all six views in both themes at 1440/820/390px. Fails on any console error, failed request, element outside the viewport, empty view or modal that will not open — then runs 11 front-end-to-back-end round trips. Screenshots upload as an artifact. |
+| **Docker** | Builds the image and proves it actually boots: waits for `/healthz`, then checks the page and static assets are served. |
+
+**`release.yml`** runs when you push a `v*` tag. It re-verifies, builds the
+image, boots it as a gate, pushes `ghcr.io/<owner>/<repo>:<tag>` and `:latest`,
+and opens a GitHub release with generated notes.
+
+```bash
+git tag v1.0.1 && git push origin v1.0.1
+```
+
+There is deliberately **no "deploy to production" step**. MeetManager is
+local-first and single-mailbox: SQLite on local disk, an in-process scheduler,
+and an OAuth redirect derived from `HOST`/`PORT`. Shipping means publishing a
+runnable image, not pushing to a shared server. If you later want a real
+deployment target, that is a separate job to add.
+
+### Running it in Docker
+
+```bash
+docker build -t meetmanager .
+docker run -p 8000:8000 -v meetmanager-data:/app/data meetmanager
+```
+
+Runs as an unprivileged user with the database on a named volume. Sample-data
+mode needs no configuration. Connecting a **real** Google Calendar in a
+container needs care: the redirect URI comes from `HOST`/`PORT`, and `HOST` is
+`0.0.0.0` inside the container, so set both to the address the app will
+actually be reached at and register that exact callback in Google Cloud
+Console.
+
+### Running the checks locally
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python selfcheck.py                        # backend
+node .github/scripts/check-assets.mjs      # static front-end checks
+
+npm --prefix tests/ui ci
+npx --prefix tests/ui playwright install chromium
+python run.py --no-browser &               # then, against the running app:
+node tests/ui/audit.mjs
+node tests/ui/functional.mjs
+```
+
+`requirements-dev.txt` exists because `selfcheck.py` drives the API through
+`fastapi.testclient`, whose HTTP client is **not** installed by `fastapi`
+alone — so `pip install -r requirements.txt && python selfcheck.py` fails in a
+clean environment. It asks for the `starlette[full]` extra rather than pinning
+a client, because Starlette < 1.6 wants `httpx` and >= 1.6 wants `httpx2`.
+
+`tests/ui/functional.mjs` writes to the running instance's database (it saves
+preferences and dismisses one notification), so point it at a throwaway
+instance rather than a real calendar.
 
 ## Notes
 

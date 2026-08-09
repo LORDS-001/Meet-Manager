@@ -1,0 +1,12 @@
+# Test-only dependencies. The app itself needs nothing in here.
+#
+# selfcheck.py drives the API through fastapi.testclient.TestClient, which is a
+# thin wrapper over starlette.testclient - and that module refuses to import
+# unless its HTTP client is installed. It is NOT pulled in by `fastapi` alone,
+# so `pip install -r requirements.txt && python selfcheck.py` fails on the
+# "HTTP API responds" check in a clean environment.
+#
+# The extra is deliberate rather than a pinned client: Starlette < 1.6 wants
+# `httpx`, Starlette >= 1.6 wants `httpx2`. Asking for the extra lets the
+# resolver pick whichever the installed Starlette actually requires.
+starlette[full]

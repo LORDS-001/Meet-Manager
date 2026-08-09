@@ -1,0 +1,121 @@
+name: Release
+
+# Tag a commit to ship it:
+#   git tag v1.0.1 && git push origin v1.0.1
+#
+# There is no "deploy to production" step here on purpose. MeetManager is a
+# local-first, single-mailbox app: SQLite on local disk, an in-process
+# scheduler, and an OAuth redirect derived from HOST/PORT. Shipping means
+# publishing a runnable image, not pushing to a shared server.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create the GitHub release
+  packages: write   # push to GHCR
+
+jobs:
+  # Never publish an image that has not passed the same gate as a normal push.
+  verify:
+    name: Verify before publishing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Self-check suite
+        run: python selfcheck.py
+
+      - name: Front-end static checks
+        run: |
+          node --check app/static/app.js
+          node .github/scripts/check-assets.mjs
+
+  publish:
+    name: Publish image to GHCR
+    runs-on: ubuntu-latest
+    needs: verify
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build, smoke-test and push
+        run: |
+          set -euo pipefail
+
+          # GHCR rejects uppercase in image names; the repo has both.
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          TAG="${GITHUB_REF_NAME}"
+          echo "Publishing $IMAGE:$TAG"
+
+          docker build -t "$IMAGE:$TAG" -t "$IMAGE:latest" .
+
+          # An image that does not boot must never reach the registry.
+          docker run -d --name mm -p 8000:8000 "$IMAGE:$TAG"
+          for _ in $(seq 1 45); do
+            curl -sf http://127.0.0.1:8000/healthz >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8000/healthz | grep -q '"ok": *true'
+          docker rm -f mm
+
+          docker push "$IMAGE:$TAG"
+          docker push "$IMAGE:latest"
+
+          echo "IMAGE_REF=$IMAGE:$TAG" >> "$GITHUB_ENV"
+
+  release:
+    name: Create the GitHub release
+    runs-on: ubuntu-latest
+    needs: publish
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # release notes need the history
+
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          TAG="${GITHUB_REF_NAME}"
+
+          cat > notes.md <<EOF
+          ## Run it
+
+          \`\`\`bash
+          docker run -p 8000:8000 -v meetmanager-data:/app/data $IMAGE:$TAG
+          \`\`\`
+
+          Then open <http://127.0.0.1:8000>. The app boots with no configuration
+          and offers a sample calendar; see \`.env.example\` to connect a real
+          Google Calendar.
+          EOF
+
+          gh release create "$TAG" \
+            --title "MeetManager $TAG" \
+            --notes-file notes.md \
+            --generate-notes

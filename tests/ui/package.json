@@ -1,0 +1,15 @@
+{
+  "name": "meetmanager-ui-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless browser checks for the MeetManager front-end.",
+  "scripts": {
+    "audit": "node audit.mjs",
+    "functional": "node functional.mjs",
+    "test": "node audit.mjs && node functional.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

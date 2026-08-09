@@ -1,0 +1,181 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch makes the in-flight run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------- backend
+  backend:
+    name: Backend / Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor: the code uses `X | None` and
+        # TemporaryDirectory(ignore_cleanup_errors=...).
+        python: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Byte-compile every module
+        run: python -m compileall -q app run.py selfcheck.py
+
+      # 11 checks: config, demo generation, conflict detection, busy-time
+      # exclusions, timeline lane packing, slot scoring, store round-trip,
+      # reminder de-duplication, full state build and the HTTP API.
+      - name: Self-check suite
+        run: python selfcheck.py
+
+  # --------------------------------------------------------------- frontend
+  frontend:
+    name: Front-end static checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: JavaScript syntax
+        run: node --check app/static/app.js
+
+      # Catches dangling icon refs, unreachable element ids, unbalanced braces
+      # and undefined custom properties - the kind of break that renders wrong
+      # without ever throwing.
+      - name: Asset consistency
+        run: node .github/scripts/check-assets.mjs
+
+  # --------------------------------------------------------------------- ui
+  ui:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: tests/ui/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          npm --prefix tests/ui ci --no-audit --no-fund
+
+      - name: Install Chromium
+        run: npx --prefix tests/ui playwright install --with-deps chromium
+
+      # Server and tests share one step so the background process cannot be
+      # orphaned between steps.
+      - name: Run the browser suite
+        env:
+          HOST: 127.0.0.1
+          PORT: "8000"
+          MM_BASE_URL: http://127.0.0.1:8000/
+        run: |
+          set -euo pipefail
+          python run.py --no-browser &
+          SERVER=$!
+          trap 'kill "$SERVER" 2>/dev/null || true' EXIT
+
+          for _ in $(seq 1 45); do
+            curl -sf http://127.0.0.1:8000/healthz >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8000/healthz
+
+          # Deterministic fixture: the generated calendar always contains
+          # known clashes, so the audit has something real to render.
+          curl -sf -X POST http://127.0.0.1:8000/api/demo/load
+
+          node tests/ui/audit.mjs
+          node tests/ui/functional.mjs
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots
+          path: shots/
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ----------------------------------------------------------------- docker
+  docker:
+    name: Image builds and boots
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: meetmanager:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Boot the container and probe it
+        run: |
+          set -euo pipefail
+          docker run -d --name mm -p 8000:8000 meetmanager:ci
+
+          for _ in $(seq 1 45); do
+            curl -sf http://127.0.0.1:8000/healthz >/dev/null && break
+            sleep 1
+          done
+
+          curl -sf http://127.0.0.1:8000/healthz | tee /dev/stderr | grep -q '"ok": *true'
+          curl -sf http://127.0.0.1:8000/ | grep -q MeetManager
+          curl -sf http://127.0.0.1:8000/static/app.js >/dev/null
+          echo "container is serving"
+
+      - name: Container logs
+        if: always()
+        run: docker logs mm || true
+
+      - name: Tear down
+        if: always()
+        run: docker rm -f mm || true
