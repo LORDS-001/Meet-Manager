@@ -333,8 +333,17 @@ svg[viewBox] {
 
 /* nowrap keeps the cluster indivisible: when space runs out the whole group
    drops below the title, instead of orphaning the primary action on its own
-   row underneath the others. */
-.page-head-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; flex-wrap: nowrap; }
+   row underneath the others. `0 1 auto` + min-width:0 lets it give ground
+   rather than overrun the header - the account chip carries a variable-width
+   e-mail address, so its natural width is not knowable up front. */
+.page-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
 
 /* ------------------------------------------------------------- buttons */
 .pill {
@@ -1248,6 +1257,7 @@ input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1) opacit
 
 .account-chip {
   max-width: 260px;
+  min-width: 0;      /* so the address can ellipsize instead of overflowing */
   padding-left: 5px;
   padding-right: 12px;
   gap: 9px;
@@ -1627,6 +1637,10 @@ input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1) opacit
      its own, and the rest go icon-only. Same for the section toolbars. */
   .page-head-actions { flex: 1 1 100%; min-width: 0; flex-wrap: wrap; }
   .page-head-actions .searchbox { flex: 1 1 100%; }
+  /* No room for an address on a phone - the avatar still identifies it, and
+     the menu spells it out in full. */
+  .account-email { display: none; }
+  .account-chip { padding-right: 8px; }
   .page-head-actions .pill span { display: none; }
   .page-head-actions .pill { padding: 0 14px; }
   #btn-connect span { display: inline; }
