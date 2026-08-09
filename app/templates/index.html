@@ -1,17 +1,17 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="light dark" />
+  <meta name="color-scheme" content="dark light" />
   <title>MeetManager &middot; {{ owner_email }}</title>
   <link rel="stylesheet" href="/static/styles.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230a0a0a'/><rect x='8' y='9' width='16' height='15' rx='3' fill='none' stroke='white' stroke-width='2'/><path d='M8 14h16M12 6v5M20 6v5' stroke='white' stroke-width='2' stroke-linecap='round'/></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23070707'/><rect x='8' y='9' width='16' height='15' rx='3' fill='none' stroke='%23e11d24' stroke-width='2'/><path d='M8 14h16M12 6v5M20 6v5' stroke='%23e11d24' stroke-width='2' stroke-linecap='round'/></svg>" />
   <script>
-    /* Applied before first paint so the theme never flashes. */
+    /* Applied before first paint so the theme never flashes. Dark is default. */
     try {
       var t = localStorage.getItem('mm-theme');
-      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      if (t === 'light') document.documentElement.dataset.theme = 'light';
     } catch (e) { /* private mode - keep the default */ }
   </script>
 </head>
@@ -25,12 +25,12 @@
 <!-- ===================== ICON SPRITE ===================== -->
 <svg class="sprite" aria-hidden="true" focusable="false">
   <defs>
-    <g id="i-grid"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></g>
+    <g id="i-grid"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></g>
     <g id="i-list"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></g>
     <g id="i-clock"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/></g>
     <g id="i-alert"><path d="M12 4.5 2.8 20h18.4L12 4.5Z"/><path d="M12 10v4M12 17h.01"/></g>
-    <g id="i-sparkle"><path d="M12 3.2 13.9 9l5.8 1.9-5.8 1.9L12 18.6l-1.9-5.8L4.3 10.9 10.1 9 12 3.2Z"/><path d="M18.5 3.5v3M20 5h-3"/></g>
-    <g id="i-settings"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 14.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5v.2a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1.1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></g>
+    <g id="i-sparkle"><path d="M12 3.2 13.9 9l5.8 1.9-5.8 1.9L12 18.6l-1.9-5.8L4.3 10.9 10.1 9 12 3.2Z"/></g>
+    <g id="i-settings"><circle cx="12" cy="12" r="3"/><path d="M19.2 14.3a1.5 1.5 0 0 0 .3 1.7l.1.1a1.9 1.9 0 1 1-2.6 2.6l-.1-.1a1.5 1.5 0 0 0-1.7-.3 1.5 1.5 0 0 0-.9 1.4v.2a1.9 1.9 0 1 1-3.8 0v-.1a1.5 1.5 0 0 0-1-1.4 1.5 1.5 0 0 0-1.7.3l-.1.1a1.9 1.9 0 1 1-2.6-2.6l.1-.1a1.5 1.5 0 0 0 .3-1.7 1.5 1.5 0 0 0-1.4-.9H4a1.9 1.9 0 1 1 0-3.8h.1a1.5 1.5 0 0 0 1.4-1 1.5 1.5 0 0 0-.3-1.7l-.1-.1a1.9 1.9 0 1 1 2.6-2.6l.1.1a1.5 1.5 0 0 0 1.7.3H9.7a1.5 1.5 0 0 0 .9-1.4V4a1.9 1.9 0 1 1 3.8 0v.1a1.5 1.5 0 0 0 .9 1.4 1.5 1.5 0 0 0 1.7-.3l.1-.1a1.9 1.9 0 1 1 2.6 2.6l-.1.1a1.5 1.5 0 0 0-.3 1.7v.1a1.5 1.5 0 0 0 1.4.9h.2a1.9 1.9 0 1 1 0 3.8h-.1a1.5 1.5 0 0 0-1.4.9Z"/></g>
     <g id="i-bell"><path d="M18 8.5a6 6 0 1 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5Z"/><path d="M13.7 19.5a2 2 0 0 1-3.4 0"/></g>
     <g id="i-search"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></g>
     <g id="i-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></g>
@@ -41,437 +41,338 @@
     <g id="i-left"><path d="m14.5 5-7 7 7 7"/></g>
     <g id="i-right"><path d="m9.5 5 7 7-7 7"/></g>
     <g id="i-close"><path d="M6 6l12 12M18 6 6 18"/></g>
-    <g id="i-video"><rect x="2.5" y="6" width="13" height="12" rx="3"/><path d="m15.5 10.5 6-3v9l-6-3z"/></g>
+    <g id="i-video"><rect x="2.5" y="6" width="13" height="12" rx="2"/><path d="m15.5 10.5 6-3v9l-6-3z"/></g>
     <g id="i-pin"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.5"/></g>
     <g id="i-users"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 4.8a3.5 3.5 0 0 1 0 6.4M18 20a6.4 6.4 0 0 0-2-4.7"/></g>
-    <g id="i-calendar"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></g>
+    <g id="i-calendar"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></g>
     <g id="i-check"><path d="m5 12.5 4.5 4.5L19 7.5"/></g>
-    <g id="i-link"><path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/></g>
-    <g id="i-trash"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2"/><path d="M6.5 7 7.5 20a1.5 1.5 0 0 0 1.5 1.4h6a1.5 1.5 0 0 0 1.5-1.4L17.5 7"/></g>
+    <g id="i-arrow"><path d="M7 17 17 7M9 7h8v8"/></g>
+    <g id="i-pulse"><path d="M2 12h4l3-8 6 16 3-8h4"/></g>
     <g id="i-google"><path d="M21 12.2c0-.7-.06-1.2-.18-1.8H12v3.3h5.1a4.4 4.4 0 0 1-1.9 2.9v2.4h3.06C20 17.4 21 15 21 12.2Z"/><path d="M12 21.5c2.6 0 4.7-.85 6.26-2.3l-3.06-2.4a5.7 5.7 0 0 1-3.2.9 5.6 5.6 0 0 1-5.26-3.85H3.6v2.42A9.5 9.5 0 0 0 12 21.5Z"/><path d="M6.74 13.85a5.7 5.7 0 0 1 0-3.66V7.77H3.6a9.5 9.5 0 0 0 0 8.5l3.14-2.42Z"/><path d="M12 6.35c1.48 0 2.8.51 3.84 1.5l2.87-2.87A9.13 9.13 0 0 0 12 2.5a9.5 9.5 0 0 0-8.4 5.27l3.14 2.42A5.6 5.6 0 0 1 12 6.35Z"/></g>
-    <g id="i-logout"><path d="M9 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3"/><path d="M15.5 16.5 20 12l-4.5-4.5M20 12H9"/></g>
   </defs>
 </svg>
 
-<div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
-<div class="app">
+<div class="chassis">
 
-  <!-- ===================== LEFT RAIL ===================== -->
-  <aside class="rail" aria-label="Quick navigation">
+  <!-- ===================== RAIL ===================== -->
+  <aside class="rail" aria-label="Navigation">
+    <a class="rail-logo" href="/" title="MeetManager" aria-label="MeetManager">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-calendar"/></svg>
+    </a>
+
     <nav class="rail-nav" id="rail-nav"></nav>
+
     <div class="rail-foot">
-      <button class="rail-btn" id="rail-settings" data-view="settings" type="button" data-tip="Settings">
+      <span class="rail-sep"></span>
+      <button class="rail-btn" id="rail-settings" data-view="settings" type="button" data-tip="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"/></svg>
       </button>
+      <button class="rail-btn" id="btn-theme" type="button" data-tip="Theme" aria-label="Toggle theme">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sun" id="theme-icon"/></svg>
+      </button>
+      <div class="rail-status">
+        <span class="rail-dot" aria-hidden="true"></span>
+        <span class="micro micro-sm" id="rail-mode">LIVE</span>
+      </div>
     </div>
   </aside>
 
   <!-- ===================== MAIN ===================== -->
   <div class="main">
 
-    <header class="topbar">
-      <a class="brand" href="/" title="MeetManager" aria-label="MeetManager">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-calendar"/></svg>
-      </a>
-      <nav class="tabs" id="tabs" aria-label="Main navigation"></nav>
-
-      <div class="searchbox">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"/></svg>
-        <input type="search" id="global-search" placeholder="Search meetings, people, places…" aria-label="Search meetings" autocomplete="off" />
-        <kbd>/</kbd>
+    <header class="page-head">
+      <div class="page-head-text">
+        <span class="micro" id="head-eyebrow">MM / OVERVIEW</span>
+        <h1 class="page-title" id="head-title">Meeting control</h1>
+        <p class="page-sub" id="head-sub">Loading your calendar&hellip;</p>
       </div>
 
-      <div class="topbar-actions">
-        <div class="theme-toggle" role="group" aria-label="Colour theme">
-          <button type="button" data-theme-set="light" class="tt-btn">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sun"/></svg><span>Light</span>
-          </button>
-          <button type="button" data-theme-set="dark" class="tt-btn">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-moon"/></svg><span>Dark</span>
-          </button>
-          <span class="tt-thumb" aria-hidden="true"></span>
+      <div class="page-head-actions">
+        <div class="searchbox">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"/></svg>
+          <input type="search" id="global-search" placeholder="Filter" aria-label="Search meetings" autocomplete="off" />
         </div>
-
-        <button class="icon-btn" id="btn-bell" type="button" aria-label="Notifications" data-tip="Notifications">
+        <button class="icon-btn" id="btn-bell" type="button" data-tip="Alerts" aria-label="Alerts">
           <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bell"/></svg>
           <span class="dot-badge is-hidden" id="bell-badge">0</span>
         </button>
-
-        <button class="btn btn-quiet" id="btn-export" type="button">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-download"/></svg>
-          <span>Export</span>
+        <button class="pill" id="btn-export" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-download"/></svg><span>Export</span>
         </button>
-
-        <button class="btn btn-quiet" id="btn-sync" type="button">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg>
-          <span>Sync</span>
+        <button class="pill" id="btn-sync" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg><span>Sync</span>
         </button>
-
-        <button class="btn btn-primary" id="btn-connect" type="button">
+        <button class="pill pill-red" id="btn-connect" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
-          <span id="btn-connect-label">Connect calendar</span>
+          <span id="btn-connect-label">Connect</span>
         </button>
       </div>
     </header>
 
+    <div class="meta-strip" id="meta-strip"></div>
     <div class="banners" id="banners"></div>
 
     <div class="page" id="page">
 
       <!-- ---------------- DASHBOARD ---------------- -->
-      <section class="view is-active" id="view-dashboard" tabindex="-1">
+      <section class="view is-active" id="view-dashboard">
+        <div class="split">
+          <div class="col-main">
+            <div class="panel-grid" id="stat-cards"></div>
 
-        <div class="hero-row">
-          <div class="hero">
-            <p class="hero-eyebrow" id="hero-eyebrow">Good day</p>
-            <h1 class="hero-title" id="hero-title">What's on your calendar today?</h1>
-            <p class="hero-sub" id="hero-sub">
-              MeetManager watches every meeting on your calendar, flags the clashes and
-              tells you when the next good slot is.
-            </p>
-            <div class="hero-actions">
-              <button class="btn btn-primary" id="hero-find" type="button">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sparkle"/></svg>
-                <span>Find me a slot</span>
-              </button>
-              <button class="btn btn-ghost" id="hero-today" type="button">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-clock"/></svg>
-                <span>See today</span>
-              </button>
+            <div class="rule">
+              <span class="micro">Live register</span>
+              <span class="micro micro-red rule-end" id="upnext-count">&mdash;</span>
+            </div>
+            <div class="tbl tbl-meetings">
+              <div class="thead">
+                <span>#</span><span>Meeting</span><span>When</span><span>State</span><span>Duration</span><span></span>
+              </div>
+              <div id="dash-upnext"></div>
+            </div>
+
+            <div class="rule">
+              <span class="micro">Today</span>
+              <span class="micro rule-end" id="today-chip">&mdash;</span>
+            </div>
+            <div class="tbl tbl-meetings">
+              <div id="today-list"></div>
             </div>
           </div>
 
-          <div class="stat-cards" id="stat-cards"></div>
-        </div>
+          <div class="col-side">
+            <div class="next-panel" id="next-meeting-card"></div>
 
-        <div class="grid-3">
-          <!-- Notifications -->
-          <section class="card" id="card-notifications">
-            <header class="card-head">
-              <h2>Notifications</h2>
-              <button class="link-btn" id="btn-clear-notifs" type="button">Clear</button>
-            </header>
-            <div class="card-body" id="dash-notifs"></div>
-          </section>
+            <div class="rule">
+              <span class="micro">Alerts</span>
+              <span class="rule-tools"><button class="link-btn" id="btn-clear-notifs" type="button">Clear</button></span>
+            </div>
+            <div id="dash-notifs"></div>
 
-          <!-- Up next -->
-          <section class="card">
-            <header class="card-head">
-              <h2>Up next</h2>
-              <button class="link-btn" data-goto="meetings" type="button">See all</button>
-            </header>
-            <div class="card-body" id="dash-upnext"></div>
-          </section>
-
-          <!-- Month calendar -->
-          <section class="card">
-            <header class="card-head">
-              <h2 id="month-label">Calendar</h2>
-              <div class="stepper">
-                <button class="step-btn" id="month-prev" type="button" aria-label="Previous month">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-left"/></svg>
-                </button>
-                <button class="step-btn" id="month-next" type="button" aria-label="Next month">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-right"/></svg>
-                </button>
-              </div>
-            </header>
-            <div class="card-body">
+            <div class="rule">
+              <span class="micro" id="month-label">Calendar</span>
+              <span class="rule-tools">
+                <button class="link-btn" id="month-prev" type="button" aria-label="Previous month">&larr;</button>
+                <button class="link-btn" id="month-next" type="button" aria-label="Next month">&rarr;</button>
+              </span>
+            </div>
+            <div class="cal">
               <div class="month" id="month-grid"></div>
-              <div class="month-agenda" id="month-agenda"></div>
+              <div class="cal-agenda" id="month-agenda"></div>
             </div>
-          </section>
-        </div>
-
-        <div class="grid-bottom">
-          <!-- Today's schedule -->
-          <section class="card">
-            <header class="card-head">
-              <h2>Today's schedule</h2>
-              <span class="chip" id="today-chip">—</span>
-            </header>
-            <div class="card-body" id="today-list"></div>
-          </section>
-
-          <!-- Black CTA -->
-          <section class="card card-invert">
-            <div class="cta">
-              <div class="cta-art" aria-hidden="true">
-                <span></span><span></span><span></span>
-              </div>
-              <h3>Never double-book again</h3>
-              <p>MeetManager scores every free slot against your working hours, your buffer and how loaded the day already is.</p>
-              <button class="btn btn-on-dark" id="cta-find" type="button">
-                <span>Find the best time</span>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-right"/></svg>
-              </button>
-            </div>
-          </section>
-
-          <!-- Rings + next meeting -->
-          <div class="stack">
-            <div class="ring-row" id="ring-row"></div>
-            <section class="card" id="next-meeting-card"></section>
           </div>
         </div>
       </section>
 
       <!-- ---------------- MEETINGS ---------------- -->
-      <section class="view" id="view-meetings" tabindex="-1">
-        <section class="card">
-          <header class="card-head card-head-wrap">
-            <div>
-              <h2>All meetings</h2>
-              <p class="card-sub" id="agenda-summary">—</p>
-            </div>
-            <div class="toolbar">
-              <div class="searchbox sm">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"/></svg>
-                <input type="search" id="agenda-search" placeholder="Filter by title, person, place…" aria-label="Filter meetings" autocomplete="off" />
-              </div>
-              <select id="agenda-filter" class="select" aria-label="Filter meetings">
-                <option value="upcoming">Upcoming</option>
-                <option value="all">Everything</option>
-                <option value="today">Today</option>
-                <option value="week">Next 7 days</option>
-                <option value="conflict">Conflicts only</option>
-                <option value="meet">Video calls only</option>
-                <option value="past">Past</option>
-              </select>
-            </div>
-          </header>
-          <div class="card-body" id="agenda-list"></div>
-        </section>
+      <section class="view" id="view-meetings">
+        <div class="rule">
+          <span class="micro">Register</span>
+          <span class="rule-tools">
+            <span class="micro" id="agenda-summary">&mdash;</span>
+            <select id="agenda-filter" class="input" style="height:34px" aria-label="Filter meetings">
+              <option value="upcoming">Upcoming</option>
+              <option value="all">Everything</option>
+              <option value="today">Today</option>
+              <option value="week">Next 7 days</option>
+              <option value="conflict">Conflicts</option>
+              <option value="meet">Video calls</option>
+              <option value="past">Past</option>
+            </select>
+          </span>
+        </div>
+        <div class="tbl tbl-meetings">
+          <div class="thead">
+            <span>#</span><span>Meeting</span><span>When</span><span>State</span><span>Duration</span><span></span>
+          </div>
+          <div id="agenda-list"></div>
+        </div>
       </section>
 
       <!-- ---------------- TIMELINE ---------------- -->
-      <section class="view" id="view-timeline" tabindex="-1">
-        <section class="card">
-          <header class="card-head card-head-wrap">
-            <div>
-              <h2 id="timeline-title">Day timeline</h2>
-              <p class="card-sub" id="timeline-meta">—</p>
-            </div>
-            <div class="toolbar">
-              <div class="stepper">
-                <button class="step-btn" id="tl-prev" type="button" aria-label="Previous day">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-left"/></svg>
-                </button>
-                <button class="step-btn" id="tl-next" type="button" aria-label="Next day">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-right"/></svg>
-                </button>
-              </div>
-              <input type="date" id="tl-date" class="select" aria-label="Timeline date" />
-              <button class="btn btn-quiet" id="tl-today" type="button">Today</button>
-            </div>
-          </header>
-          <div class="card-body">
-            <div class="allday" id="timeline-allday"></div>
-            <div class="timeline" id="timeline-wrap">
-              <div class="tl-hours" id="timeline-hours"></div>
-              <div class="tl-canvas" id="timeline-canvas"></div>
-            </div>
-            <p class="legend">
-              <span class="legend-key"></span> Side-by-side blocks overlap in time.
-              <span class="legend-key is-clash"></span> A red edge means a genuine double booking.
-            </p>
-          </div>
-        </section>
+      <section class="view" id="view-timeline">
+        <div class="rule">
+          <span class="micro" id="timeline-meta">&mdash;</span>
+          <span class="rule-tools tl-toolbar">
+            <button class="pill sm" id="tl-prev" type="button" aria-label="Previous day">&larr;</button>
+            <input type="date" id="tl-date" class="input" style="height:32px" aria-label="Timeline date" />
+            <button class="pill sm" id="tl-next" type="button" aria-label="Next day">&rarr;</button>
+            <button class="pill sm" id="tl-today" type="button">Today</button>
+          </span>
+        </div>
+        <div class="allday" id="timeline-allday"></div>
+        <div class="timeline" id="timeline-wrap">
+          <div class="tl-hours" id="timeline-hours"></div>
+          <div class="tl-canvas" id="timeline-canvas"></div>
+        </div>
+        <p class="legend">
+          <span class="legend-key"></span> Side by side = overlapping
+          <span class="legend-key is-clash"></span> Red = double booked
+        </p>
       </section>
 
       <!-- ---------------- CONFLICTS ---------------- -->
-      <section class="view" id="view-conflicts" tabindex="-1">
-        <section class="card">
-          <header class="card-head">
-            <div>
-              <h2>Double bookings</h2>
-              <p class="card-sub" id="conflict-summary">—</p>
-            </div>
-          </header>
-          <div class="card-body" id="conflict-list"></div>
-        </section>
-        <section class="card">
-          <header class="card-head">
-            <div>
-              <h2>Back-to-back crunches</h2>
-              <p class="card-sub" id="tight-summary">Meetings with less breathing room than your buffer</p>
-            </div>
-          </header>
-          <div class="card-body" id="tight-list"></div>
-        </section>
+      <section class="view" id="view-conflicts">
+        <div class="rule">
+          <span class="micro">Double bookings</span>
+          <span class="micro micro-red rule-end" id="conflict-summary">&mdash;</span>
+        </div>
+        <div class="tbl tbl-conflicts">
+          <div class="thead">
+            <span>#</span><span>Meeting</span><span>Clashes with</span><span>Overlap</span><span></span>
+          </div>
+          <div id="conflict-list"></div>
+        </div>
+
+        <div class="rule">
+          <span class="micro">Back to back</span>
+          <span class="micro rule-end" id="tight-summary">&mdash;</span>
+        </div>
+        <div class="tbl tbl-conflicts">
+          <div id="tight-list"></div>
+        </div>
       </section>
 
       <!-- ---------------- FIND A SLOT ---------------- -->
-      <section class="view" id="view-slots" tabindex="-1">
-        <section class="card">
-          <header class="card-head">
-            <div>
-              <h2>When should I schedule this?</h2>
-              <p class="card-sub">Every free slot scored against your calendar, working hours and meeting load.</p>
-            </div>
-          </header>
-          <div class="card-body">
-            <div class="field-row">
-              <label class="field">
-                <span>Meeting length</span>
-                <select id="reco-duration" class="select">
-                  <option value="15">15 minutes</option>
-                  <option value="30" selected>30 minutes</option>
-                  <option value="45">45 minutes</option>
-                  <option value="60">1 hour</option>
-                  <option value="90">1.5 hours</option>
-                  <option value="120">2 hours</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>Look ahead</span>
-                <select id="reco-days" class="select">
-                  <option value="3">3 days</option>
-                  <option value="7">1 week</option>
-                  <option value="10" selected>10 days</option>
-                  <option value="14">2 weeks</option>
-                  <option value="30">1 month</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>How many</span>
-                <select id="reco-limit" class="select">
-                  <option value="5">Top 5</option>
-                  <option value="8" selected>Top 8</option>
-                  <option value="12">Top 12</option>
-                </select>
-              </label>
-              <button class="btn btn-primary" id="btn-reco" type="button">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sparkle"/></svg>
-                <span>Find best times</span>
-              </button>
-            </div>
-            <div class="reco-list" id="reco-list"></div>
+      <section class="view" id="view-slots">
+        <div class="rule">
+          <span class="micro">Slot finder</span>
+          <span class="rule-tools">
+            <select id="reco-duration" class="input" style="height:34px" aria-label="Meeting length">
+              <option value="15">15 min</option>
+              <option value="30" selected>30 min</option>
+              <option value="45">45 min</option>
+              <option value="60">60 min</option>
+              <option value="90">90 min</option>
+              <option value="120">120 min</option>
+            </select>
+            <select id="reco-days" class="input" style="height:34px" aria-label="Look ahead">
+              <option value="3">3 days</option>
+              <option value="7">7 days</option>
+              <option value="10" selected>10 days</option>
+              <option value="14">14 days</option>
+              <option value="30">30 days</option>
+            </select>
+            <select id="reco-limit" class="input" style="height:34px" aria-label="How many">
+              <option value="5">Top 5</option>
+              <option value="8" selected>Top 8</option>
+              <option value="12">Top 12</option>
+            </select>
+            <button class="pill pill-red sm" id="btn-reco" type="button">Scan</button>
+          </span>
+        </div>
+        <div class="tbl tbl-slots">
+          <div class="thead">
+            <span>#</span><span>Window</span><span>Day</span><span>Signal</span><span>Score</span>
           </div>
-        </section>
+          <div id="reco-list"></div>
+        </div>
       </section>
 
       <!-- ---------------- SETTINGS ---------------- -->
-      <section class="view" id="view-settings" tabindex="-1">
-        <section class="card">
-          <header class="card-head">
-            <div>
-              <h2>Reminders &amp; working hours</h2>
-              <p class="card-sub">These drive the reminder engine and every slot suggestion.</p>
-            </div>
-          </header>
-          <div class="card-body">
-            <div class="settings-grid">
-              <label class="field">
-                <span>Remind me before a meeting</span>
-                <select id="set-reminder" class="select">
-                  <option value="5">5 minutes</option>
-                  <option value="10">10 minutes</option>
-                  <option value="15">15 minutes</option>
-                  <option value="30">30 minutes</option>
-                  <option value="60">1 hour</option>
-                  <option value="120">2 hours</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>Timezone</span>
-                <select id="set-timezone" class="select"></select>
-              </label>
-              <label class="field">
-                <span>Working day starts</span>
-                <input type="time" id="set-work-start" class="select" />
-              </label>
-              <label class="field">
-                <span>Working day ends</span>
-                <input type="time" id="set-work-end" class="select" />
-              </label>
-              <label class="field">
-                <span>Minimum gap between meetings</span>
-                <select id="set-buffer" class="select">
-                  <option value="0">No buffer</option>
-                  <option value="5">5 minutes</option>
-                  <option value="10">10 minutes</option>
-                  <option value="15">15 minutes</option>
-                  <option value="30">30 minutes</option>
-                </select>
-              </label>
-              <div class="field field-wide">
-                <span>Working days</span>
-                <div class="daypicker" id="set-workdays" role="group" aria-label="Working days"></div>
-              </div>
-            </div>
+      <section class="view" id="view-settings">
+        <div class="rule"><span class="micro">Reminders &amp; working hours</span></div>
 
-            <div class="switch-list">
-              <label class="switch-row">
-                <input type="checkbox" id="set-browser-notif" />
-                <span class="switch" aria-hidden="true"></span>
-                <span class="switch-text">
-                  <strong>Desktop notifications</strong>
-                  <em id="notif-perm">—</em>
-                </span>
-              </label>
-              <label class="switch-row">
-                <input type="checkbox" id="set-email-notif" />
-                <span class="switch" aria-hidden="true"></span>
-                <span class="switch-text">
-                  <strong>E-mail reminders</strong>
-                  <em id="email-hint">—</em>
-                </span>
-              </label>
-            </div>
-
-            <div class="btn-row">
-              <button class="btn btn-primary" id="btn-save-settings" type="button">Save settings</button>
-              <button class="btn btn-quiet" id="btn-test-notif" type="button">Send a test reminder</button>
-            </div>
+        <div class="form-grid">
+          <label class="field">
+            <span class="micro">Remind before</span>
+            <select id="set-reminder" class="input">
+              <option value="5">5 minutes</option>
+              <option value="10">10 minutes</option>
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+              <option value="60">1 hour</option>
+              <option value="120">2 hours</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="micro">Timezone</span>
+            <select id="set-timezone" class="input"></select>
+          </label>
+          <label class="field">
+            <span class="micro">Day starts</span>
+            <input type="time" id="set-work-start" class="input" />
+          </label>
+          <label class="field">
+            <span class="micro">Day ends</span>
+            <input type="time" id="set-work-end" class="input" />
+          </label>
+          <label class="field">
+            <span class="micro">Minimum gap</span>
+            <select id="set-buffer" class="input">
+              <option value="0">No buffer</option>
+              <option value="5">5 minutes</option>
+              <option value="10">10 minutes</option>
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+            </select>
+          </label>
+          <div class="field field-wide">
+            <span class="micro">Working days</span>
+            <div class="daypicker" id="set-workdays" role="group" aria-label="Working days"></div>
           </div>
-        </section>
+        </div>
 
-        <section class="card">
-          <header class="card-head">
-            <div>
-              <h2>Calendar source</h2>
-              <p class="card-sub">Where MeetManager is reading your meetings from.</p>
-            </div>
-          </header>
-          <div class="card-body">
-            <div class="source-panel" id="source-panel"></div>
-            <div class="btn-row">
-              <button class="btn btn-quiet" id="btn-demo" type="button">Load sample calendar</button>
-              <button class="btn btn-quiet" id="btn-clear" type="button">Clear tracked data</button>
-              <button class="btn btn-danger" id="btn-disconnect" type="button">Disconnect Google</button>
-            </div>
-            <details class="help">
-              <summary>How do I connect my real Google Calendar?</summary>
-              <ol>
-                <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Google Cloud Console → Credentials</a>.</li>
-                <li>Enable the <strong>Google Calendar API</strong> for your project.</li>
-                <li>Create an <strong>OAuth client ID</strong> of type <strong>Web application</strong>.</li>
-                <li>Add this exact authorised redirect URI: <code id="redirect-uri">…</code></li>
-                <li>Under <em>OAuth consent screen → Test users</em>, add <code>{{ owner_email }}</code>.</li>
-                <li>Put the client ID and secret in <code>.env</code>, then restart the app.</li>
-              </ol>
-            </details>
-          </div>
-        </section>
+        <label class="switch-row">
+          <input type="checkbox" id="set-browser-notif" />
+          <span class="switch" aria-hidden="true"></span>
+          <span class="switch-text">
+            <strong>Desktop notifications</strong>
+            <em id="notif-perm">&mdash;</em>
+          </span>
+        </label>
+        <label class="switch-row">
+          <input type="checkbox" id="set-email-notif" />
+          <span class="switch" aria-hidden="true"></span>
+          <span class="switch-text">
+            <strong>E-mail reminders</strong>
+            <em id="email-hint">&mdash;</em>
+          </span>
+        </label>
+
+        <div class="btn-row">
+          <button class="pill pill-red" id="btn-save-settings" type="button">Save settings</button>
+          <button class="pill" id="btn-test-notif" type="button">Test reminder</button>
+        </div>
+
+        <div class="rule"><span class="micro">Calendar source</span></div>
+        <div class="source-panel" id="source-panel"></div>
+        <div class="btn-row">
+          <button class="pill" id="btn-demo" type="button">Load sample calendar</button>
+          <button class="pill" id="btn-clear" type="button">Clear tracked data</button>
+          <button class="pill" id="btn-disconnect" type="button">Disconnect Google</button>
+        </div>
+
+        <details class="help">
+          <summary>How do I connect my real Google Calendar?</summary>
+          <ol>
+            <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Google Cloud Console &rarr; Credentials</a>.</li>
+            <li>Enable the <strong>Google Calendar API</strong> for your project.</li>
+            <li>Create an <strong>OAuth client ID</strong> of type <strong>Web application</strong>.</li>
+            <li>Add this exact authorised redirect URI: <code id="redirect-uri">&hellip;</code></li>
+            <li>Under <em>OAuth consent screen &rarr; Test users</em>, add <code>{{ owner_email }}</code>.</li>
+            <li>Put the client ID and secret in <code>.env</code>, then restart the app.</li>
+          </ol>
+        </details>
       </section>
 
     </div><!-- /page -->
   </div><!-- /main -->
-</div><!-- /app -->
+</div><!-- /chassis -->
 
-<!-- ===================== NOTIFICATION DRAWER ===================== -->
+<!-- ===================== ALERT DRAWER ===================== -->
 <div class="scrim is-hidden" id="drawer-scrim"></div>
-<aside class="drawer is-hidden" id="drawer" aria-label="Notifications" aria-hidden="true">
+<aside class="drawer is-hidden" id="drawer" aria-label="Alerts" aria-hidden="true">
   <header class="drawer-head">
-    <h2>Notifications</h2>
-    <div class="stepper">
-      <button class="btn btn-quiet sm" id="btn-dismiss-all" type="button">Clear all</button>
-      <button class="step-btn" id="btn-close-drawer" type="button" aria-label="Close notifications">
+    <span class="micro">Alerts</span>
+    <span class="rule-tools">
+      <button class="pill sm" id="btn-dismiss-all" type="button">Clear all</button>
+      <button class="icon-btn" id="btn-close-drawer" type="button" aria-label="Close" style="width:32px;height:32px">
         <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
       </button>
-    </div>
+    </span>
   </header>
   <div class="drawer-list" id="drawer-list"></div>
 </aside>
@@ -479,7 +380,7 @@
 <!-- ===================== EVENT MODAL ===================== -->
 <div class="scrim is-hidden" id="modal-scrim">
   <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-    <button class="step-btn modal-close" id="modal-close" type="button" aria-label="Close">
+    <button class="icon-btn modal-close" id="modal-close" type="button" aria-label="Close" style="width:32px;height:32px">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
     </button>
     <div id="modal-body"></div>
