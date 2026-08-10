@@ -124,10 +124,13 @@ class Settings:
 
     @property
     def email_reminders_enabled(self) -> bool:
-        return bool(self.smtp_user and self.smtp_password and (self.smtp_to or self.owner_email))
+        """Whether the server can send mail at all. Who it goes *to* is decided
+        per account by `MeetManagerService.own_email()`, not here."""
+        return bool(self.smtp_user and self.smtp_password)
 
     @property
     def email_recipient(self) -> str:
+        """Fallback recipient for an install with no accounts (local use)."""
         return self.smtp_to or self.owner_email
 
 

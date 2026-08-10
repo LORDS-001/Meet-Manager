@@ -2,7 +2,9 @@
 
 [![CI](https://github.com/LORDS-001/Meet-Manager/actions/workflows/ci.yml/badge.svg)](https://github.com/LORDS-001/Meet-Manager/actions/workflows/ci.yml)
 
-A meeting manager for **adedokundaniel16@gmail.com**, written entirely in Python.
+A meeting manager for any Google account, written entirely in Python. Signing in
+with Google *is* the sign-up: it creates the account, and everything stored from
+then on belongs to it.
 
 - **Backend** — FastAPI + SQLite + APScheduler. All the real work (timeline lane
   packing, conflict clustering, slot scoring) happens here and is sent to the
@@ -76,7 +78,8 @@ and is the only part I cannot do for you.
 
 1. Open <https://console.cloud.google.com/apis/credentials> and create (or pick) a project.
 2. **APIs & Services → Library** → enable **Google Calendar API**.
-3. **OAuth consent screen** → *External* → add `adedokundaniel16@gmail.com` under **Test users**.
+3. **OAuth consent screen** → *External* → add every Google account you want to
+   let in under **Test users** (or publish the screen — see *Deploying to Render*).
 4. **Credentials → Create credentials → OAuth client ID → Web application**.
 5. Under *Authorised redirect URIs* add exactly:
 
@@ -130,10 +133,11 @@ SMTP_PASSWORD=your-16-char-app-password
 .\.venv\Scripts\python.exe selfcheck.py
 ```
 
-Runs 11 checks covering conflict detection, timeline layout (asserts no two
+Runs 22 checks covering conflict detection, timeline layout (asserts no two
 meetings ever share a lane), recommendation correctness (asserts no suggested
 slot ever overlaps a booked meeting), reminder de-duplication, database
-round-tripping, and every HTTP endpoint. Exits non-zero on any failure.
+round-tripping, account isolation, sign-in identity, and every HTTP endpoint.
+Exits non-zero on any failure.
 
 ## Project layout
 
@@ -166,6 +170,18 @@ meetmanager/
 MeetManager is multi-tenant. Signing in **is** connecting Google: the OAuth
 callback creates the account, and from then on every row the app stores carries
 an `owner_id`.
+
+**Who a sign-in belongs to is proven, not guessed.** The address comes out of
+the OpenID token Google signs, verified against our own client id. It used to
+come from a Calendar API call that fell back to `OWNER_EMAIL` when the lookup
+failed — so one flaky request during sign-in would file a stranger's Google
+token under the owner's account and drop them into the owner's calendar. There
+is now no fallback at all: unproven identity fails the sign-in. The exchange
+also persists nothing of its own — it hands the token straight to the account
+it belongs to, where previously it rested briefly in a row owned by nobody and
+two people signing in at the same instant could leave with each other's
+calendars. Reminder e-mails likewise go to each account's own address rather
+than one globally configured recipient. Self-checks assert all three.
 
 Isolation is enforced in one place. A `Store` is *bound* to an owner —
 `store.for_owner(id)` returns a view sharing the connection whose every query
@@ -215,7 +231,7 @@ Two GitHub Actions workflows.
 
 | Job | What it does |
 |---|---|
-| **Backend** | Installs on Python 3.11, 3.12 and 3.13, byte-compiles every module, then runs the 11-check `selfcheck.py` suite (conflict detection, timeline lane packing, slot scoring, store round-trip, reminder de-duplication, the HTTP API). |
+| **Backend** | Installs on Python 3.11, 3.12 and 3.13, byte-compiles every module, then runs the 22-check `selfcheck.py` suite (conflict detection, timeline lane packing, slot scoring, store round-trip, reminder de-duplication, account isolation, sign-in identity, the HTTP API). |
 | **Front-end** | `node --check` on `app.js`, plus `check-assets.mjs` — a static pass for dangling icon references, `$("#id")` calls with no matching element, unbalanced CSS braces and undefined `var(--token)`s. These break the page silently, without ever raising a console error. |
 | **Browser** | Boots the app, seeds the sample calendar, then drives Chromium through all six views in both themes at 1440/820/390px. Fails on any console error, failed request, element outside the viewport, empty view or modal that will not open — then runs 11 front-end-to-back-end round trips. Screenshots upload as an artifact. |
 | **Docker** | Builds the image and proves it actually boots: waits for `/healthz`, then checks the page and static assets are served. |
@@ -228,11 +244,8 @@ and opens a GitHub release with generated notes.
 git tag v1.0.1 && git push origin v1.0.1
 ```
 
-There is deliberately **no "deploy to production" step**. MeetManager is
-local-first and single-mailbox: SQLite on local disk, an in-process scheduler,
-and an OAuth redirect derived from `HOST`/`PORT`. Shipping means publishing a
-runnable image, not pushing to a shared server. If you later want a real
-deployment target, that is a separate job to add.
+Neither workflow deploys anywhere. Render builds from the repository itself
+(see below), so a release is a runnable image, not a push to a server.
 
 ### Running it in Docker
 
@@ -250,33 +263,49 @@ Console.
 
 ### Deploying to Render
 
-`render.yaml` is a Blueprint: **New → Blueprint → pick this repo**, then fill
-in the variables Render prompts for.
+`render.yaml` is a Blueprint. The ordering below matters: the callback URL
+cannot be registered with Google until Render has told you the service's
+address, so the **first deploy is expected to come up with sign-in broken**.
+
+1. **Render → New → Blueprint → pick this repository.** It reads `render.yaml`
+   and prompts for the variables marked `sync: false`.
+2. Fill in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Leave `PUBLIC_URL`
+   blank for now; `SECRET_KEY` is generated for you and needs no input.
+3. Let it deploy, then copy the service address off the dashboard — usually
+   `https://meetmanager.onrender.com`, but Render appends a suffix if the name
+   is taken, so read the real one rather than assuming.
+4. Set `PUBLIC_URL` to exactly that address, no trailing slash.
+5. In **Google Cloud Console → Credentials → your OAuth client**, add
+   `<PUBLIC_URL>/auth/callback` to the authorised redirect URIs. Keep the
+   existing `http://127.0.0.1:8000/auth/callback` so local development still
+   works — a client can hold both.
+6. Redeploy. Sign-in works from this point.
 
 | Variable | Why |
 |---|---|
-| `PUBLIC_URL` | e.g. `https://meetmanager.onrender.com`. Without it the OAuth redirect is built from `HOST`/`PORT` and comes out as `http://0.0.0.0:10000/auth/callback`, which Google rejects. |
-| `SECRET_KEY` | Signs session cookies. Unset means one is generated per boot, so every restart signs everyone out. |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Your OAuth client. |
+| `PUBLIC_URL` | Without it the OAuth redirect is derived from `HOST`/`PORT` and comes out as `http://0.0.0.0:10000/auth/callback`, which Google rejects. |
+| `SECRET_KEY` | Signs session cookies. Generated by Render once, so a redeploy does not sign everybody out. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Your OAuth client. `credentials.json` is not in the repository, so on a host these are the only way to configure it. |
 
-After the first deploy, add `<PUBLIC_URL>/auth/callback` to the authorised
-redirect URIs on the Google OAuth client, then redeploy.
-
-**Letting other people sign in.** While the OAuth consent screen is in
-*Testing*, only accounts you list as test users can get in, and their refresh
-tokens expire after 7 days. Switch **Publishing status → In production** to
-lift both. It stays unverified, so users see a "Google hasn't verified this
-app" interstitial and there is a **100-user cap** for sensitive scopes;
-removing the warning and the cap needs Google's verification review, which
+**Letting other people sign in.** This is the step that decides whether the
+deployment is usable by anyone other than you, and it is set on the OAuth
+consent screen, not in Render. While it is in *Testing*, only accounts listed
+as test users can sign in at all, and their refresh tokens expire after 7 days.
+Switch **Publishing status → In production** to lift both. It stays unverified,
+so users see a "Google hasn't verified this app" interstitial (**Advanced →
+Go to MeetManager**) and there is a **100-user cap** for sensitive scopes.
+Removing the warning and the cap needs Google's verification review, which
 wants a privacy policy, a homepage and a demo video.
 
 **What the free plan costs you.** Free instances have no persistent disk and
 reset their filesystem whenever the service restarts — including waking from
 the 15-minute idle sleep. Everything here lives in SQLite, so on that plan
-expect users to be signed out and to have to reconnect Google after a restart,
-locally-created tasks to be lost, and reminders not to fire while asleep. Fine
-for a demo. For real use, switch to `plan: starter`, uncomment the `disk:`
-block in `render.yaml`, and set `SECRET_KEY`.
+expect every user to be signed out and to have to reconnect Google after a
+restart, locally-created tasks to be lost, and reminders not to fire while
+asleep. Nothing is corrupted by this and Google-sourced events return on the
+next sync, but it means the deployment demonstrates the app rather than being
+somewhere people can rely on. For real use switch to `plan: starter` and
+uncomment the `disk:` block in `render.yaml`.
 
 ### Running the checks locally
 

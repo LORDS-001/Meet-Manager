@@ -51,6 +51,7 @@ _IGNORED_CALENDAR_SUFFIXES = (
 
 try:  # pragma: no cover - import guard
     from google.auth.transport.requests import Request as GoogleRequest
+    from google.oauth2 import id_token as google_id_token
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import Flow
     from googleapiclient.discovery import build
@@ -62,6 +63,7 @@ except Exception as exc:  # pragma: no cover - only hit when deps missing
     GOOGLE_LIBS_AVAILABLE = False
     GOOGLE_IMPORT_ERROR = str(exc)
     GoogleRequest = Credentials = Flow = build = None  # type: ignore[assignment]
+    google_id_token = None  # type: ignore[assignment]
 
     class HttpError(Exception):  # type: ignore[no-redef]
         pass
@@ -168,10 +170,11 @@ class GoogleCalendarClient:
             # second mailbox.
             "prompt": "select_account consent" if force_select else "consent",
         }
-        if not force_select:
-            hint = login_hint or self.settings.owner_email
-            if hint:
-                params["login_hint"] = hint
+        if not force_select and login_hint:
+            # Only ever hint an address this session is already signed in as.
+            # Falling back to a configured address would greet every stranger
+            # on the sign-in page with somebody else's e-mail filled in.
+            params["login_hint"] = login_hint
 
         url, state = flow.authorization_url(**params)
         return url, {"state": state, "code_verifier": getattr(flow, "code_verifier", None)}
@@ -181,7 +184,15 @@ class GoogleCalendarClient:
         authorization_response: str,
         state: str | None,
         pending: dict[str, Any] | None = None,
-    ) -> None:
+    ) -> tuple[str, dict[str, Any]]:
+        """Exchange the code, returning (verified address, token blob).
+
+        Deliberately persists nothing. Sign-in happens before we know whose
+        account this is, so the only place to park a token would be the shared
+        ownerless row - and two people finishing sign-in at the same moment
+        would overwrite it for each other, handing one of them the other's
+        calendar. Returning it means it goes straight to its owner instead.
+        """
         pending = pending if isinstance(pending, dict) else {}
         expected = pending.get("state")
         verifier = pending.get("code_verifier")
@@ -206,27 +217,59 @@ class GoogleCalendarClient:
             raise GoogleAuthError(f"Could not complete Google sign-in: {message}") from exc
 
         creds = flow.credentials
-        self._save_credentials(creds)
-        self._refresh_profile(creds)
+        return self._verify_identity(creds), self._credentials_blob(creds)
 
-    def adopt_credentials_from(self, other: "GoogleCalendarClient") -> None:
-        """Move a freshly minted token onto this (user-scoped) client.
+    def _verify_identity(self, creds) -> str:
+        """The address that just signed in, from the signed OpenID token.
 
-        Sign-in has to exchange the code before it knows whose account it is,
-        so the token lands in system scope first and is handed over here.
+        This is the one value sign-in must never guess. It decides which
+        account the new token is filed under, so a wrong answer files one
+        person's calendar under another person's account. The ID token is
+        signed by Google and verified against our own client id, so it either
+        yields the true address or raises - there is deliberately no fallback
+        to a configured address, which would silently hand the session to
+        whoever that address belongs to.
         """
-        token = other.store.get(TOKEN_KEY)
-        profile = other.store.get(PROFILE_KEY)
-        if token:
-            self.store.set(TOKEN_KEY, token)
-        if profile:
-            self.store.set(PROFILE_KEY, profile)
+        raw = getattr(creds, "id_token", None)
+        if not raw or google_id_token is None:
+            raise GoogleAuthError(
+                "Google did not return a verifiable identity for this account. "
+                "Please try signing in again."
+            )
+        config = self.client_config() or {}
+        audience = (config.get("web") or {}).get("client_id") or None
+        try:
+            claims = google_id_token.verify_oauth2_token(
+                raw,
+                GoogleRequest(),
+                audience,
+                # Small tolerance: a container whose clock is a few seconds
+                # behind Google's would otherwise reject a valid token.
+                clock_skew_in_seconds=10,
+            )
+        except Exception as exc:  # noqa: BLE001 - any failure means "not proven"
+            raise GoogleAuthError(
+                f"Could not verify who signed in: {exc}"
+            ) from exc
 
-    def forget_credentials(self) -> None:
-        """Clear credentials without touching cached data. Used to wipe the
-        system-scope copy once a user has adopted it."""
-        self.store.delete(TOKEN_KEY)
-        self.store.delete(PROFILE_KEY)
+        email = (claims.get("email") or "").strip().lower()
+        if not email:
+            raise GoogleAuthError("Google did not return an e-mail address for this account.")
+        if claims.get("email_verified") is False:
+            raise GoogleAuthError(
+                "That Google account's e-mail address is not verified, so it "
+                "cannot be used to sign in."
+            )
+        return email
+
+    def adopt_token(self, blob: dict[str, Any], email: str) -> None:
+        """Install a freshly exchanged token onto this (user-scoped) client.
+
+        The token goes from the sign-in exchange straight to its owner, so it
+        is never readable through a row that belongs to nobody.
+        """
+        self.store.set(TOKEN_KEY, blob)
+        self._refresh_profile(email=email)
 
     def disconnect(self) -> None:
         self.store.delete(TOKEN_KEY)
@@ -235,19 +278,20 @@ class GoogleCalendarClient:
         self.store.clear_tasks("google_tasks")
 
     # ----------------------------------------------------------- credentials
+    @staticmethod
+    def _credentials_blob(creds) -> dict[str, Any]:
+        return {
+            "token": creds.token,
+            "refresh_token": creds.refresh_token,
+            "token_uri": creds.token_uri,
+            "client_id": creds.client_id,
+            "client_secret": creds.client_secret,
+            "scopes": list(creds.scopes or SCOPES),
+            "expiry": creds.expiry.isoformat() if creds.expiry else None,
+        }
+
     def _save_credentials(self, creds) -> None:
-        self.store.set(
-            TOKEN_KEY,
-            {
-                "token": creds.token,
-                "refresh_token": creds.refresh_token,
-                "token_uri": creds.token_uri,
-                "client_id": creds.client_id,
-                "client_secret": creds.client_secret,
-                "scopes": list(creds.scopes or SCOPES),
-                "expiry": creds.expiry.isoformat() if creds.expiry else None,
-            },
-        )
+        self.store.set(TOKEN_KEY, self._credentials_blob(creds))
 
     def _load_credentials(self):
         blob = self.store.get(TOKEN_KEY)
@@ -292,17 +336,26 @@ class GoogleCalendarClient:
             raise GoogleAuthError("Google is not connected yet.")
         return build("tasks", "v1", credentials=creds, cache_discovery=False)
 
-    def _refresh_profile(self, creds=None) -> dict[str, Any]:
+    def _refresh_profile(self, creds=None, email: str | None = None) -> dict[str, Any]:
+        """Cache display details for the connected account.
+
+        `email` comes from the verified ID token and is authoritative; the
+        calendar lookup only enriches it with the account's timezone. If that
+        lookup fails the profile is still correct, merely less specific -
+        which is why nothing here falls back to a configured address.
+        """
+        profile: dict[str, Any] = {
+            "email": (email or "").strip().lower(),
+            "timezone": self.settings.timezone,
+        }
         try:
             service = self._service()
             info = service.calendars().get(calendarId="primary").execute()
-            profile = {
-                "email": info.get("id", self.settings.owner_email),
-                "timezone": info.get("timeZone", self.settings.timezone),
-            }
-        except Exception as exc:  # noqa: BLE001 - profile is best-effort
+            profile["timezone"] = info.get("timeZone") or self.settings.timezone
+            if not profile["email"]:
+                profile["email"] = (info.get("id") or "").strip().lower()
+        except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
             log.debug("Profile lookup failed: %s", exc)
-            profile = {"email": self.settings.owner_email, "timezone": self.settings.timezone}
         self.store.set(PROFILE_KEY, profile)
         return profile
 

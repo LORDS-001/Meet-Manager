@@ -10,12 +10,15 @@
 #
 # READ THIS BEFORE GOING PUBLIC
 # ----------------------------
-# MeetManager is single-tenant. It stores exactly one Google token, and its
-# events/tasks tables have no owner column, so:
-#   * anyone who opens the URL sees whoever's calendar is connected;
-#   * a second person clicking Connect overwrites the first person's token.
-# Do not expose this to people you would not hand your calendar to until
-# per-user accounts exist. See the "Multi-user" section in README.md.
+# MeetManager is multi-tenant: every row carries an owner, signing in with
+# Google creates the account, and one account cannot reach another's data.
+# Two things still gate who can actually get in, and neither lives in this
+# file - both are set on the Google OAuth client:
+#   * while the consent screen is in "Testing", only listed test users can
+#     sign in at all, and their tokens expire after 7 days;
+#   * published-but-unverified allows any Google account, shows a warning
+#     interstitial, and caps you at 100 users.
+# See "Letting other people sign in" in README.md.
 
 services:
   - type: web
@@ -53,11 +56,23 @@ services:
       - key: PUBLIC_URL
         sync: false
 
-      - key: OWNER_EMAIL
-        sync: false
+      # Signs the session cookie. Render generates one once and keeps it, so
+      # a redeploy does not sign everybody out. Left unset, the app generates
+      # a key per boot and stores it - which an ephemeral disk then throws away.
+      - key: SECRET_KEY
+        generateValue: true
+
+      # Your OAuth client. credentials.json is deliberately not in the repo,
+      # so on a host these two are the only way to configure it.
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+      # Optional. Cosmetic only now that accounts exist: a default address for
+      # an install nobody has signed into yet. Users are identified by their
+      # own Google sign-in, never by this.
+      - key: OWNER_EMAIL
         sync: false
 
       - key: TIMEZONE

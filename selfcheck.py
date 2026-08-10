@@ -445,6 +445,72 @@ def main() -> int:
                 settings.google_client_id, settings.google_client_secret = original
         return "challenge sent, verifier persisted and restored"
 
+    @check("Sign-in identity is proven, never assumed")
+    def _():
+        # Regression guard for the worst failure this app can have. The address
+        # that signs in decides which account the new Google token is filed
+        # under, so if it is ever *guessed* one person's calendar lands inside
+        # another person's account. It used to fall back to OWNER_EMAIL whenever
+        # the profile lookup hiccuped - on a public deployment that means a
+        # stranger with a flaky first request ends up inside the owner's mailbox.
+        from urllib.parse import parse_qs, urlparse
+
+        from app.google_client import GoogleAuthError
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            settings.db_path = Path(tmp) / "identity.db"
+            original = (settings.google_client_id, settings.google_client_secret)
+            settings.google_client_id = "test-client-id.apps.googleusercontent.com"
+            settings.google_client_secret = "test-secret"
+            try:
+                service = MeetManagerService(settings)
+
+                # No ID token: refuse the sign-in rather than invent an identity.
+                class _NoIdToken:
+                    id_token = None
+
+                try:
+                    service.google._verify_identity(_NoIdToken())
+                except GoogleAuthError:
+                    pass
+                else:
+                    raise AssertionError("sign-in accepted an account it could not identify")
+
+                # A failed profile lookup (no credentials here, so it always
+                # fails) must never put the configured owner's address on it.
+                named = service.google._refresh_profile(email="stranger@example.com")
+                assert named["email"] == "stranger@example.com", named
+                blank = service.google._refresh_profile()
+                assert blank["email"] == "", f"the profile invented an address: {blank['email']!r}"
+                assert owner not in (named["email"], blank["email"]), "fell back to OWNER_EMAIL"
+
+                # A signed-out visitor must not be shown somebody else's address.
+                query = parse_qs(urlparse(service.google.authorization_url()[0]).query)
+                assert "login_hint" not in query, (
+                    f"the sign-in page leaks {query['login_hint']} to every visitor"
+                )
+                # Reconnecting a known session may still hint that account.
+                known = parse_qs(urlparse(service.google.authorization_url("known@example.com")[0]).query)
+                assert known.get("login_hint") == ["known@example.com"], known
+
+                # A new token must go straight onto its owner. Parking it in
+                # the ownerless row - as the old two-step hand-off did - lets
+                # two people finishing sign-in at the same moment overwrite it
+                # for each other, and walk away with the wrong calendar.
+                from app.google_client import TOKEN_KEY
+
+                alice = service.store.upsert_user(email="alice@example.com")
+                scoped = service.for_user(alice["id"])
+                scoped.google.adopt_token({"token": "alice-token"}, "alice@example.com")
+                assert scoped.store.get(TOKEN_KEY) == {"token": "alice-token"}
+                assert service.store.get(TOKEN_KEY) is None, "a token was left in the ownerless row"
+                assert scoped.google.profile()["email"] == "alice@example.com"
+
+                service.shutdown()
+            finally:
+                settings.google_client_id, settings.google_client_secret = original
+        return "identity taken from the signed ID token; no owner fallback, no hint leak"
+
     @check("Accounts are isolated from each other")
     def _():
         # The whole point of multi-tenancy: one account must never be able to
@@ -487,6 +553,13 @@ def main() -> int:
             a.scan_reminders()
             assert len(a.notifications()) > 0
             assert len(b.notifications()) == 0, "notifications leaked between accounts"
+
+            # Reminder e-mails go to the account itself. Sending them to the
+            # globally configured address would post one user's meeting titles,
+            # times and locations to whoever runs the server.
+            assert a.own_email() == "alice@example.com", a.own_email()
+            assert b.own_email() == "bob@example.com", b.own_email()
+            assert owner not in (a.own_email(), b.own_email()), "reminders would e-mail the host"
 
             # Deleting an account takes its data with it and leaves Bob alone.
             root.store.delete_user(alice["id"])

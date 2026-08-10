@@ -550,23 +550,21 @@ async def auth_callback(request: Request) -> RedirectResponse:
 
     pending = request.session.pop(SESSION_OAUTH_KEY, None)
     try:
-        # Exchange on the unbound client, then read who just signed in.
-        service.google.finish_auth(
+        # The exchange stores nothing: it hands back the address out of the
+        # signed ID token - the only thing allowed to decide whose account
+        # this is - together with the token itself.
+        email, token = service.google.finish_auth(
             authorization_response=str(request.url),
             state=request.query_params.get("state"),
             pending=pending,
         )
-        profile = service.google.profile() or {}
-        email = (profile.get("email") or "").strip().lower()
-        if not email:
-            raise GoogleAuthError("Google did not return an e-mail address for this account.")
 
         user = service.store.upsert_user(email=email, name=email.split("@")[0])
 
-        # Move the freshly minted credentials from system scope onto the user.
+        # Straight onto its owner, so it is never held in a row belonging to
+        # nobody where a simultaneous sign-in could pick it up.
         scoped = service.for_user(user["id"])
-        scoped.google.adopt_credentials_from(service.google)
-        service.google.forget_credentials()
+        scoped.google.adopt_token(token, email)
 
         _remember_account(request, user["id"])
     except GoogleAuthError as exc:

@@ -506,7 +506,9 @@ class MeetManagerService:
     def load_demo(self) -> dict[str, Any]:
         """Load the sample calendar. Deliberately does not touch tasks - the
         button says "sample calendar", so it should not invent task rows."""
-        events = demo_data.generate(self.settings.owner_email, self.tz)
+        # Seeded with this account's own address, so the sample calendar shows
+        # the signed-in user as the attendee rather than the host's mailbox.
+        events = demo_data.generate(self.own_email() or self.settings.owner_email, self.tz)
         self.store.clear_events("google")
         self.store.replace_events(events, "demo")
         self.store.clear_notifications()
@@ -706,17 +708,34 @@ class MeetManagerService:
 
         return created
 
+    def own_email(self) -> str:
+        """Where this account's own mail goes: the address it signed in with.
+
+        Never the globally configured recipient. On a shared deployment that
+        would post one user's meeting titles, times and locations to whoever
+        set SMTP_TO - or, by default, to OWNER_EMAIL. The global address is
+        only right when there is no account at all, i.e. a local single-user
+        install.
+        """
+        if self.store.owner_id:
+            user = self.store.get_user(self.store.owner_id) or {}
+            return (user.get("email") or "").strip()
+        return self.settings.email_recipient
+
     def _maybe_email(self, event: Event, minutes_away: int) -> None:
         if not self.prefs().get("email_reminders"):
             return
         if not self.settings.email_reminders_enabled:
+            return
+        recipient = self.own_email()
+        if not recipient:
             return
         try:
             local_start = event.start.astimezone(self.tz)
             message = EmailMessage()
             message["Subject"] = f"[Reminder] {event.summary} in {minutes_away} min"
             message["From"] = self.settings.smtp_user
-            message["To"] = self.settings.email_recipient
+            message["To"] = recipient
             lines = [
                 f"{event.summary}",
                 f"{local_start.strftime('%A %d %B %Y, %H:%M')} ({self.tz.key})",
